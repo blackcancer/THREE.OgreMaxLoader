@@ -18,6 +18,7 @@ support: blackcancer@initsysrev.net
 -	animations WIP
 
 ### ==> Installation <==
+Install Three.js.  
 Put XMLOgreLoader.js in your script's folder.  
 Load the script with
 `<script type="text/javascript" src="Path_of_the_scipt/XMLOgreLoader.js"></script>`
