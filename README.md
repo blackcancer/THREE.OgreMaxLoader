@@ -3,7 +3,7 @@ three.XMLOgreLoader
 
 Description: An Ogre XML loader for THREE.js.  
 License: [Creative Common](http://creativecommons.org/licenses/by/3.0/legalcode)  
-Version: 0.01  
+Version: 0.1-rev00004  
 Date: 2014-12-09  
 
 By Blackcancer  
@@ -11,6 +11,11 @@ website: http://initsysrev.net
 support: blackcancer@initsysrev.net
 
 ### ==> CHANGELOG <==
+0.1-rev00004:  
+-	Remove old StarOS dependence  
+-	Add THREE.MeshPhongGlowMaterial for compatibility reason  
+-	Encapsulate functions  
+
 0.1-rev00001:  
 -	basic support of XML Ogre modele.  
 -	support *.scene, *.mesh, *.skeleton, *.material.  
