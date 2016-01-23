@@ -337,7 +337,11 @@
 	THREE.XMLOgreLoader.prototype.parseMeshFile		= function(xml, texturePath){
 		var scope		= this,
 			object		= new THREE.Object3D(),
-			bones, animations;
+			bones, animations, sharedGeometry;
+
+		if(xml.getElementsByTagName('sharedgeometry').length > 0) {
+			sharedGeometry = parseGeometry(xml.getElementsByTagName('sharedgeometry')[0])
+		}
 
 		if(xml.getElementsByTagName('skeletonlink').length > 0){
 			var result	= parseSkeleton(xml.getElementsByTagName('skeletonlink')[0].getAttribute('name'), object);
@@ -351,7 +355,7 @@
 			for(var i = 0, il = submesh.length; i < il; i++){
 				var node = submesh[i];
 
-				object.add(parseMesh(node, bones, animations));
+				object.add(parseMesh(node, bones, animations, sharedGeometry));
 			}
 		}
 
@@ -371,7 +375,7 @@
 
 
 		//sub functions
-		function parseMesh(node, bonesList, animations){
+		function parseMesh(node, bonesList, animations, sharedGeometry){
 			var userData	= {},
 				mesh		= null
 				geometry	= new THREE.Geometry();
@@ -403,7 +407,13 @@
 				}
 			}
 
-			geom = parseGeometry(geom);
+			if (typeof geom !== "undefined") {
+				geom = parseGeometry(geom);
+			} else if(userData['usesharedvertices']) {
+				geom = sharedGeometry;
+			} else {
+				throw "No geometry available for mesh"
+			}
 
 			geometry.vertices	= geom.vertices;
 
