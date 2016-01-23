@@ -440,35 +440,37 @@
 			}
 
 			// parsing bones assignment
-			for(var i = 0, il = bones.children.length; i < il; i++){
-				var bone	= bones.children[i],
-					vIndex	= parseInt(bone.getAttribute('vertexindex'));
+			if(typeof bones !== "undefined") {
+				for (var i = 0, il = bones.children.length; i < il; i++) {
+					var bone = bones.children[i],
+						vIndex = parseInt(bone.getAttribute('vertexindex'));
 
-				if(!assignment[vIndex]){
-					assignment[vIndex] = {
-						'skinWeights':			[parseInt(bone.getAttribute('weight'))],
-						'skinIndices':			[parseInt(bone.getAttribute('boneindex'))]
-					};
+					if (!assignment[vIndex]) {
+						assignment[vIndex] = {
+							'skinWeights': [parseInt(bone.getAttribute('weight'))],
+							'skinIndices': [parseInt(bone.getAttribute('boneindex'))]
+						};
+					}
+					else {
+						assignment[vIndex].skinWeights.push(parseInt(bone.getAttribute('weight')));
+						assignment[vIndex].skinIndices.push(parseInt(bone.getAttribute('boneindex')));
+					}
 				}
-				else{
-					assignment[vIndex].skinWeights.push(parseInt(bone.getAttribute('weight')));
-					assignment[vIndex].skinIndices.push(parseInt(bone.getAttribute('boneindex')));
+
+				for (var i = 0, l = assignment.length; i < l; i++) {
+					var x = assignment[i].skinWeights[0] ? assignment[i].skinWeights[0] : 0;
+					y = assignment[i].skinWeights[1] ? assignment[i].skinWeights[1] : 0;
+					z = assignment[i].skinWeights[2] ? assignment[i].skinWeights[2] : 0;
+					w = assignment[i].skinWeights[3] ? assignment[i].skinWeights[3] : 0;
+
+					a = assignment[i].skinIndices[0] ? assignment[i].skinIndices[0] : 0;
+					b = assignment[i].skinIndices[1] ? assignment[i].skinIndices[1] : 0;
+					c = assignment[i].skinIndices[2] ? assignment[i].skinIndices[2] : 0;
+					d = assignment[i].skinIndices[3] ? assignment[i].skinIndices[3] : 0;
+
+					geometry.skinWeights.push(vector4(x, y, z, w));
+					geometry.skinIndices.push(vector4(a, b, c, d));
 				}
-			}
-
-			for(var i = 0, l = assignment.length; i < l; i++){
-				var x	= assignment[i].skinWeights[0] ?	assignment[i].skinWeights[0] : 0;
-					y	= assignment[i].skinWeights[1] ?	assignment[i].skinWeights[1] : 0;
-					z	= assignment[i].skinWeights[2] ?	assignment[i].skinWeights[2] : 0;
-					w	= assignment[i].skinWeights[3] ?	assignment[i].skinWeights[3] : 0;
-
-					a	= assignment[i].skinIndices[0] ?	assignment[i].skinIndices[0] : 0;
-					b	= assignment[i].skinIndices[1] ?	assignment[i].skinIndices[1] : 0;
-					c	= assignment[i].skinIndices[2] ?	assignment[i].skinIndices[2] : 0;
-					d	= assignment[i].skinIndices[3] ?	assignment[i].skinIndices[3] : 0;
-
-				geometry.skinWeights.push(vector4(x, y, z, w));
-				geometry.skinIndices.push(vector4(a, b, c, d));
 			}
 
 			geometry.computeBoundingBox();
