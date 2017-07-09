@@ -1,0 +1,82 @@
+<!ELEMENT mesh (submeshes?, submeshnames?, skeletonlink?, sharedgeometry?)>
+
+<!ELEMENT submeshes (submesh*)>
+
+<!ELEMENT submesh (faces?, geometry?, boneassignments?)>
+<!ATTLIST submesh
+	material			CDATA			#IMPLIED
+	usesharedvertices	(true | false)	false
+	use32bitindexes		(true | false)	false
+	operationtype		CDATA			#IMPLIED
+>
+
+<!ELEMENT faces (face*)>
+<!ATTLIST faces
+	count	CDATA	#IMPLIED
+>
+
+<!ELEMENT face EMPTY>
+<!ATTLIST face
+	v1	CDATA	#IMPLIED
+	v2	CDATA	#IMPLIED
+	v3	CDATA	#IMPLIED
+>
+
+<!ELEMENT geometry (vertexbuffer*)>
+<!ATTLIST geometry
+	vertexcount	CDATA	#IMPLIED
+>
+
+<!ELEMENT vertexbuffer (vertex*)>
+<!ATTLIST vertexbuffer
+	positions					(true | false)	true
+	normals						(true | false)	true
+	texture_coord_dimensions_0	CDATA	#IMPLIED
+	texture_coord_dimensions_1	CDATA	#IMPLIED
+	texture_coord_dimensions_2	CDATA	#IMPLIED
+	texture_coords				CDATA	#IMPLIED
+>
+
+<!ELEMENT vertex (position?, normal?, texcoord*)>
+
+<!ELEMENT position EMPTY>
+<!ATTLIST position
+    x	CDATA	#REQUIRED
+    y	CDATA	#REQUIRED
+    z	CDATA	#REQUIRED
+>
+
+<!ELEMENT normal EMPTY>
+<!ATTLIST normal
+    x	CDATA	#REQUIRED
+    y	CDATA	#REQUIRED
+    z	CDATA	#REQUIRED
+>
+
+<!ELEMENT texcoord EMPTY>
+<!ATTLIST texcoord
+    u	CDATA	#REQUIRED
+    v	CDATA	#REQUIRED
+>
+
+<!ELEMENT boneassignments (vertexboneassignment*)>
+
+<!ELEMENT vertexboneassignment EMPTY>
+<!ATTLIST vertexboneassignment
+	vertexindex	CDATA #REQUIRED
+	boneindex	CDATA #REQUIRED
+	weight		CDATA #REQUIRED
+>
+
+<!ELEMENT submeshnames (submeshname*)>
+
+<!ELEMENT submeshname EMPTY>
+<!ATTLIST
+	name	CDATA	#IMPLIED
+	index	CDATA	#IMPLIED
+>
+
+<!ELEMENT skeletonlink EMPTY>
+<!ATTLIST
+	name	CDATA	#IMPLIED
+>

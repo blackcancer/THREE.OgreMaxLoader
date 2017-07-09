@@ -1,0 +1,97 @@
+<!ELEMENT scene (nodes?, environment?)>
+<!ATTLIST scene
+	formatVersion		CDATA	#REQUIRED
+	id					ID		#IMPLIED
+	upAxis				CDATA	#IMPLIED
+	unitsPerMeter		CDATA	#IMPLIED
+	minOgreVersion		CDATA	#IMPLIED
+	ogreMaxVersion		CDATA	#IMPLIED
+	author				CDATA	#IMPLIED
+	application			CDATA	#IMPLIED
+>
+
+<!ELEMENT environment (clipping?, colourAmbient?, colourBackground?)>
+
+<!ELEMENT clipping EMPTY>
+<!ATTLIST clipping
+	near	CDATA #REQUIRED
+	far		CDATA #REQUIRED
+>
+
+<!ELEMENT colourAmbient EMPTY>
+<!ATTLIST colourAmbient
+	r	CDATA	#REQUIRED
+	g	CDATA	#REQUIRED
+	b	CDATA	#REQUIRED
+>
+
+<!ELEMENT colourBackground EMPTY>
+<!ATTLIST colourBackground
+	r	CDATA	#REQUIRED
+	g	CDATA	#REQUIRED
+	b	CDATA	#REQUIRED
+>
+
+<!ELEMENT nodes (node*, position?, rotation?, scale?)>
+
+<!ELEMENT node (position?, rotation?, scale?, entity*, node*)>
+<!ATTLIST node
+	name			CDATA			#IMPLIED
+	id				ID				#IMPLIED
+	visibility		(true | false)	"true"
+>
+
+<!ELEMENT position EMPTY>
+<!ATTLIST position
+	x	CDATA	#REQUIRED
+	y	CDATA	#REQUIRED
+	z	CDATA	#REQUIRED
+>
+
+<!ELEMENT rotation EMPTY>
+<!ATTLIST rotation
+	qx		CDATA	#IMPLIED
+	qy		CDATA	#IMPLIED
+	qz		CDATA	#IMPLIED
+	qw		CDATA	#IMPLIED
+	axisX	CDATA	#IMPLIED
+	axisY	CDATA	#IMPLIED
+	axisZ	CDATA	#IMPLIED
+	angle	CDATA	#IMPLIED
+	angleX	CDATA	#IMPLIED
+	angleY	CDATA	#IMPLIED
+	angleZ	CDATA	#IMPLIED
+>
+
+<!ELEMENT scale EMPTY>
+<!ATTLIST scale
+	x	CDATA	#REQUIRED
+	y	CDATA	#REQUIRED
+	z	CDATA	#REQUIRED
+>
+
+<!ELEMENT entity (subentities*, boneAttachments*)>
+<!ATTLIST entity
+	name			CDATA			#IMPLIED
+	id				ID				#IMPLIED
+	meshFile		CDATA			#REQUIRED
+	castShadows		(true | false)	"false"
+	receiveShadows	(true | false)	"false"
+>
+
+<!ELEMENT subentities (subentity*)>
+
+<!ELEMENT subentity EMPTY>
+<!ATTLIST subentity
+	index				CDATA	#IMPLIED
+	materialName		CDATA	#IMPLIED
+	renderQueue			CDATA	#IMPLIED
+	renderQueuePriority	CDATA	#IMPLIED
+>
+
+<!ELEMENT boneAttachments (boneAttachment*)>
+
+<!ELEMENT boneAttachment (position?, rotation?, scale?)>
+<!ATTLIST boneAttachment
+	bone	CDATA	#IMPLIED
+>

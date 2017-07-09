@@ -1,0 +1,89 @@
+<!ELEMENT skeleton (bones?, bonehierarchy?, animations?)>
+<!ATTLIST skeleton
+	blendmode	CDATA	#IMPLIED
+>
+
+<!ELEMENT bones (bone*)>
+
+<!ELEMENT bone (position?, rotation?)>
+<!ATTLIST bone
+	id		CDATA	#IMPLIED
+	name	CDATA	#IMPLIED
+>
+
+<!ELEMENT position EMPTY>
+<!ATTLIST position
+    x	CDATA	#REQUIRED
+    y	CDATA	#REQUIRED
+    z	CDATA	#REQUIRED
+>
+ 
+<!ELEMENT rotation (axis?)>
+<!ATTLIST rotation
+    angle	CDATA	#REQUIRED
+>
+ 
+<!ELEMENT axis EMPTY>
+<!ATTLIST axis
+    x	CDATA	#REQUIRED
+    y	CDATA	#REQUIRED
+    z	CDATA	#REQUIRED
+>
+
+<!ELEMENT bonehierarchy (boneparent*)>
+
+<!ELEMENT boneparent EMPTY>
+<!ATTLIST boneparent
+    bone	CDATA	#REQUIRED
+    parent	CDATA	#REQUIRED
+>
+
+<!ELEMENT animations (animation*)>
+
+<!ELEMENT animation (tracks?)>
+<!ATTLIST animation
+    name	CDATA	#REQUIRED
+    length	CDATA	#DEFAULT "0"
+>
+
+<!ELEMENT tracks (track*)>
+
+<!ELEMENT track (keyframes?)>
+<!ATTLIST track
+    bone	CDATA	#REQUIRED
+>
+
+<!ELEMENT keyframes (keyframe*)>
+
+<!ELEMENT keyframe (translate?, rotate?, scale?)>
+<!ATTLIST keyframe
+    time	CDATA	#REQUIRED
+>
+
+<!ELEMENT translate EMPTY>
+<!ATTLIST translate
+    x	CDATA	#REQUIRED
+    y	CDATA	#REQUIRED
+    z	CDATA	#REQUIRED
+>
+ 
+<!ELEMENT rotate (axis?)>
+<!ATTLIST rotate
+    angle	CDATA	#IMPLIED
+    angleX	CDATA	#IMPLIED
+    axisX	CDATA	#IMPLIED
+    axisY	CDATA	#IMPLIED
+    axisZ	CDATA	#IMPLIED
+    qx		CDATA	#IMPLIED
+    qy		CDATA	#IMPLIED
+    qz		CDATA	#IMPLIED
+    qw		CDATA	#IMPLIED
+>
+ 
+<!ELEMENT scale EMPTY>
+<!ATTLIST scale
+    x		CDATA	#IMPLIED
+    y		CDATA	#IMPLIED
+    z		CDATA	#IMPLIED
+    factor	CDATA	#IMPLIED
+>
