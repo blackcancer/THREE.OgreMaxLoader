@@ -17,16 +17,19 @@ THREE.Cache.enabled = true;
 	//--------------------------------------------
 	// THREE.OgreMaxLoader
 	//--------------------------------------------
-	THREE.OgreMaxLoader = function(manager){
-		this.manager			= (manager !== undefined)? manager : new THREE.LoadingManager();
-		this.internalManager	= new THREE.LoadingManager();
-		this.objectRoot			= {};
-		this.path				= "";
-		this.url				= "";
-	};
+class OgreMaxLoader{
+	constructor(manager){
+		this.manager				= (manager !== undefined)? manager : new THREE.LoadingManager();
+		this.internalManager    = new THREE.LoadingManager();
+		this.objectRoot                 = {};
+		this.path                               = "";
+		this.url                                = "";
+	}
+}
 
-	THREE.OgreMaxLoader.prototype = {
-		constructor: THREE.OgreMaxLoader,
+
+        const OgreMaxLoaderProto = {
+		constructor: OgreMaxLoader,
 
 		get texturePath(){
 			if(this._texturePath === undefined){
@@ -427,7 +430,7 @@ THREE.Cache.enabled = true;
 			* @return	null
 			**/
 			function parseEntity(XMLNode, object){
-				var internalLoader	= new THREE.OgreMaxLoader(scope.manager),
+				var internalLoader	= new OgreMaxLoader(scope.manager),
 					url				= scope.path + XMLNode.getAttribute('meshFile') + '.xml',
 					node			= XMLNode.getElementsByTagName('subentities')[0],
 					boneAttachments, materialIndex;
@@ -493,7 +496,7 @@ THREE.Cache.enabled = true;
 
 				url = scope.path + fname + ".material";
 
-				var internalLoader = new THREE.DotMaterialLoader(scope.manager);
+				var internalLoader = new DotMaterialLoader(scope.manager);
 
 				scope.internalManager.itemStart(url);
 				internalLoader.texturePath = scope.texturePath || scope.path;
@@ -599,7 +602,7 @@ THREE.Cache.enabled = true;
 				//if <skeletonlink> exist
 				node = XMLNode.getElementsByTagName('skeletonlink')[0];
 				if(node){
-					var internalLoader = new THREE.OgreMaxLoader(scope.manager),
+					var internalLoader = new OgreMaxLoader(scope.manager),
 						url = scope.path + node.getAttribute('name') + '.xml';
 
 					scope.internalManager.itemStart(url);
@@ -1540,18 +1543,22 @@ THREE.Cache.enabled = true;
 				this.computeFaceNormals();
 			};
 		}
-	};
+        };
+
+Object.defineProperties(OgreMaxLoader.prototype, Object.getOwnPropertyDescriptors(OgreMaxLoaderProto));
 
 
 	//--------------------------------------------
 	// THREE.DotMaterialLoader
 	//--------------------------------------------
-	THREE.DotMaterialLoader = function(manager){
-		this.manager = ( manager !== undefined ) ? manager : THREE.DefaultLoadingManager;
-	}
+class DotMaterialLoader{
+        constructor(manager){
+                this.manager = ( manager !== undefined ) ? manager : THREE.DefaultLoadingManager;
+        }
+}
 
-	THREE.DotMaterialLoader.prototype = {
-		constructor: THREE.DotMaterialLoader,
+        const DotMaterialLoaderProto = {
+		constructor: DotMaterialLoader,
 
 		get path(){
 			if(this._path === undefined){
@@ -1884,5 +1891,6 @@ THREE.Cache.enabled = true;
                 }
         };
 
-export const OgreMaxLoader = THREE.OgreMaxLoader;
-export const DotMaterialLoader = THREE.DotMaterialLoader;
+Object.defineProperties(DotMaterialLoader.prototype, Object.getOwnPropertyDescriptors(DotMaterialLoaderProto));
+
+export { OgreMaxLoader, DotMaterialLoader };
