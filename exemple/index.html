@@ -3,128 +3,87 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 	<head>
 		<title>OgreMaxLoader exemple</title>
-		<meta http-equiv="Content-Type"		content="text/html; charset=utf-8" /></script>
+		<meta http-equiv="Content-Type"		content="text/html; charset=utf-8" />
 		<meta name="viewport"				content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
-		<!--### Loading Libraries ###-->
-		<script type="text/javascript" src="http://threejs.org/build/three.min.js"></script>
-		<script type="text/javascript" src="http://threejs.org/examples/js/controls/OrbitControls.js"></script>
+               <!--### Loading Libraries ###-->
+               <script type="module">
+                       import * as THREE from 'https://unpkg.com/three@0.177.0/build/three.module.js';
+                       import { OrbitControls } from 'https://unpkg.com/three@0.177.0/examples/jsm/controls/OrbitControls.js';
+                       import { OgreMaxLoader } from '../OgreMaxLoader.js';
 
-		<!--### Loading OgreMaxLoader ###-->
-		<script type="text/javascript" src="../OgreMaxLoader.min.js"></script>
-	</head>
+                       const container = document.getElementById('container');
+                       const clock = new THREE.Clock();
+                       const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+                       const loader = new OgreMaxLoader();
+                       let scene, renderer, controls, mixer;
+
+                       try {
+                               renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                               console.log('WebGLRenderer loaded.');
+                       } catch (err) {
+                               console.error('Can not load WebGLRenderer.', err);
+                               return;
+                       }
+
+                       renderer.setSize(window.innerWidth, window.innerHeight);
+                       renderer.setPixelRatio(window.devicePixelRatio);
+                       container.appendChild(renderer.domElement);
+
+                       camera.position.set(2, 1, 2);
+                       camera.updateProjectionMatrix();
+
+                       controls = new OrbitControls(camera, renderer.domElement);
+
+                       // loader.texturePath = './res/otherTextures/';
+                       loader.load('./res/models/PlayerMdl.scene', onLoad, e=>{}, err=>{ console.error(err); });
+
+                       function onLoad(loadedScene){
+                               const mesh = loadedScene.getObjectByName('PlayerMdl').children[0];
+
+                               const group = new THREE.Group();
+                               const axisHelper = new THREE.AxesHelper(5.02);
+                               const gridHelper = new THREE.GridHelper(5, 10, new THREE.Color(0x007d00), new THREE.Color(0x007d00));
+                               const skelHelper = new THREE.SkeletonHelper(mesh);
+
+                               axisHelper.position.set(-2.51, -0.95, -2.51);
+                               gridHelper.position.set(0, -0.95, 0);
+
+                               mixer = new THREE.AnimationMixer(mesh);
+                               const saluteAnim = mixer.clipAction('StandESaluteA');
+                               saluteAnim.play();
+
+                               group.name = 'external';
+                               group.add(axisHelper);
+                               group.add(gridHelper);
+                               group.add(skelHelper);
+                               group.add(camera);
+                               loadedScene.add(group);
+                               scene = loadedScene;
+
+                               console.log('Finished scene:');
+                               console.log(scene);
+
+                               animate();
+                       }
+
+                       const animate = () => {
+                               requestAnimationFrame(animate);
+                               render();
+                               controls.update();
+                       };
+
+                       const render = () => {
+                               const delta = clock.getDelta() * 0.75;
+                               if(mixer) mixer.update(delta);
+                               renderer.render(scene, camera);
+                       };
+               </script>
+       </head>
 
 	<body style="background-color: #0B0E13;">
 		<div id="container"></div>
 
-		<script type="text/javascript">
-			var _container = document.getElementById('container'),
-				_clock		= new THREE.Clock(),
-				_camera		= new THREE.PerspectiveCamera(),
-				_loader		= new THREE.OgreMaxLoader(),
-				_scene, _renderer, _controls, _mixer;
-
-			//Instantiate Three.js renderer
-			try {
-				_renderer	= new THREE.WebGLRenderer({antialias: true, alpha: true});
-				console.log("WebGLRenderer loaded.");
-			}
-			catch(cErr){
-				console.warn(cErr);
-				console.warn("Can not load WebGLRenderer, trying with CanvasRenderer.");
-
-				try {
-					_renderer	= new THREE.CanvasRenderer();
-					console.log("CanvasRenderer loaded.");
-				}
-				catch(cErr){
-					console.err("Can not load Renderer.");
-					throw "Can not load Renderer";
-				}
-			}
-
-			//Setup dimentions and aspect ratio
-			_renderer.setSize( window.innerWidth, window.innerHeight );
-			_renderer.setPixelRatio(window.devicePixelRatio);
-
-			//Add _renderer to dom
-			_container.appendChild(_renderer.domElement);
-
-			//Setup camera
-			_camera.fov		= 45;
-			_camera.aspect	= window.innerWidth / window.innerHeight;
-			_camera.near	= 0.1;
-			_camera.far		= 100;
-			_camera.position.set(2, 1, 2);
-			_camera.updateProjectionMatrix();
-
-			//Setup orbital control for _camera
-			console.log("Add orbite controls...");
-			_controls = new THREE.OrbitControls(_camera, _renderer.domElement);
-
-			//Uncomment to use alternative textures path
-			//_loader.texturePath = './res/otherTextures/';
-
-			//Load Model
-			_loader.load('./res/models/PlayerMdl.scene', onLoad, onProgress, onError);
-
-			function onLoad(scene){
-				//Retrive mesh from scene
-				var mesh		= scene.getObjectByName("PlayerMdl").children[0],
-				idleAnim;
-
-				//Build some helpers for a better visualisation
-				var group		= new THREE.Group(),
-					axisHelper	= new THREE.AxisHelper( 5.02 ),
-					gridHelper	= new THREE.GridHelper(5, 10, new THREE.Color(0x007d00), new THREE.Color(0x007d00)),
-					skelHelper	= new THREE.SkeletonHelper(mesh);
-
-				axisHelper.position.set(-2.51, -0.95, -2.51);
-				gridHelper.position.set(0 , -0.95, 0);
-
-				//Create AnimationMixer from mesh than load animation to play
-				_mixer		= new THREE.AnimationMixer(mesh);
-				saluteAnim	= _mixer.clipAction('StandESaluteA');
-				saluteAnim.play();
-
-				//Add all new elements to the scene than set it to main scene
-				group.name = "external";
-				group.add(axisHelper);
-				group.add(gridHelper);
-				group.add(skelHelper);
-				group.add(_camera);
-				scene.add(group);
-				_scene = scene;
-
-				console.log("Finished scene:");
-				console.log(_scene);
-
-				//Execute animate to refresh renderer
-				animate();
-			};
-
-			//TODO
-			function onProgress(event){};
-
-			//TODO
-			function onError(event){};
-
-			function animate(){
-				requestAnimationFrame(animate);
-				render();
-				update();
-			};
-
-			function render(){
-				var delta = _clock.getDelta() * 0.75;
-
-				_mixer.update(delta);
-				_renderer.render(_scene, _camera);
-			};
-
-			function update(){
-				_controls.update()
-			};
-		</script>
+		
 	</body>
 </html>

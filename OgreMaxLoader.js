@@ -10,8 +10,9 @@
 	support: blackcancer@initsysrev.net
 */
 
-(function(){
-	THREE.Cache.enabled = true;
+import * as THREE from 'three';
+
+THREE.Cache.enabled = true;
 
 	//--------------------------------------------
 	// THREE.OgreMaxLoader
@@ -148,9 +149,11 @@
 				onProgress(itemsLoaded, itemsTotal);
 			};
 
-			this.internalManager.onError	= function(url){
-				console.log("[OgreMaxLoader] There was an error loading " + url );
-			};
+                        this.internalManager.onError = function(url){
+                                const error = new Error("[OgreMaxLoader] Error loading " + url);
+                                console.error(error);
+                                onError(error);
+                        };
 
 			//Setup loader functions
 			function onFileLoaded(response){
@@ -1877,7 +1880,9 @@
 						break;
 					}
 				}
-			};
-		}
-	}
-})();
+                        };
+                }
+        };
+
+export const OgreMaxLoader = THREE.OgreMaxLoader;
+export const DotMaterialLoader = THREE.DotMaterialLoader;
