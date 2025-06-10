@@ -4,7 +4,9 @@ THREE.OgreMaxLoader
 Description: A OgreMax loader for THREE.js.  
 License: [Creative Common](http://creativecommons.org/licenses/by/3.0/legalcode)  
 Version: 0.2-rev00001  
-Date: 2014-12-09  
+Date: 2014-12-09
+
+Requires Node.js >= 18.
   
 By Blackcancer  
 website: [http://initsysrev.net](http://initsysrev.net)  
@@ -38,10 +40,11 @@ support: [blackcancer@initsysrev.net](mailto:blackcancer@initsysrev.net)
   
   
 ### ==> Installation <==
-Install Three.js.  
-Put OgreMaxLoader.js in your script's folder (or OgreMaxLoader.min.js).  
-Load the script with  
-`<script type="text/javascript" src="Path_of_the_scipt/OgreMaxLoader.js"></script>`  
+Install Node.js (version 18 or newer is recommended).
+Run `./install.sh` to install the `three` dependency before testing the library. This step also installs Three.js via npm.
+Put OgreMaxLoader.js in your script's folder (or OgreMaxLoader.min.js).
+Load the script with
+`<script type="text/javascript" src="Path_of_the_scipt/OgreMaxLoader.js"></script>`
   
   
 ### ==> Usage <==
