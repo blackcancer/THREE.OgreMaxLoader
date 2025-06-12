@@ -59,7 +59,8 @@
  */
 'use strict';
 
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+// Use local three module in Node.js test environment
+import * as THREE from 'three';
 THREE.Cache.enabled = true;
 
 /**
@@ -360,9 +361,9 @@ class OgreMaxLoader extends THREE.Loader {
 			}
 
 			// faces → indices
-			if (facesNode) {
-				this.#parseFaces(facesNode, indices, base, base);
-			}
+                        if (facesNode) {
+                                this.#parseFaces(facesNode, indices, base, positions.length / 3);
+                        }
 
 			// bone assignments
 			if (boneNode) {
@@ -1741,8 +1742,9 @@ class DotMaterialLoader extends THREE.Loader {
 						m.transparent = true;
 						m.blending = tokens[1] === 'add' ? THREE.AdditiveBlending : THREE.NormalBlending;
 						break;
-					case 'texture_unit':
-						handleTextureUnit();
+                                case 'texture_unit':
+                                                i--; // let handleTextureUnit consume the line
+                                                handleTextureUnit();
 						break;
 					default:
 						/* ignore */
