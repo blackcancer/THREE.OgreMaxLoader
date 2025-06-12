@@ -11,6 +11,9 @@ if [ ! -f package.json ]; then
   "type": "module",
   "dependencies": {
     "three": "^0.177.0"
+  },
+  "devDependencies": {
+    "linkedom": "^0.16.0"
   }
 }
 JSON
