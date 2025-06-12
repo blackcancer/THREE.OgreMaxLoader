@@ -1,89 +1,120 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-	<head>
-		<title>OgreMaxLoader exemple</title>
-		<meta http-equiv="Content-Type"		content="text/html; charset=utf-8" />
-		<meta name="viewport"				content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OgreMaxLoader – exemple ES2023</title>
 
-               <!--### Loading Libraries ###-->
-               <script type="module">
-                       import * as THREE from 'https://unpkg.com/three@0.177.0/build/three.module.js';
-                       import { OrbitControls } from 'https://unpkg.com/three@0.177.0/examples/jsm/controls/OrbitControls.js';
-                       import { OgreMaxLoader, DotMaterialLoader } from '../OgreMaxLoader.js';
 
-                       const container = document.getElementById('container');
-                       const clock = new THREE.Clock();
-                       const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-                       const loader = new OgreMaxLoader();
-                       let scene, renderer, controls, mixer;
+    <style>
+        /* Full-screen canvas, dark background */
+        html, body {
+            height: 100%;
+            margin: 0;
+            background: #0B0E13;
+            overflow: hidden;
+        }
 
-                       try {
-                               renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-                               console.log('WebGLRenderer loaded.');
-                       } catch (err) {
-                               console.error('Can not load WebGLRenderer.', err);
-                               return;
-                       }
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
 
-                       renderer.setSize(window.innerWidth, window.innerHeight);
-                       renderer.setPixelRatio(window.devicePixelRatio);
-                       container.appendChild(renderer.domElement);
+</head>
+<body>
+    <canvas id="container"></canvas>
+    <!-- Full-screen canvas, dark background -->
+    <!-- ── Three.js (ES modules) ───────────────────────────────────────── -->
+    <script type="importmap">
+        {
+          "imports": {
+            "three":           "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/":   "https://unpkg.com/three@0.160.0/examples/jsm/"
+          }
+        }
+    </script>
+    <script type="module">
+        /* Core library and extras */
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-                       camera.position.set(2, 1, 2);
-                       camera.updateProjectionMatrix();
+        /* OgreMaxLoader – local ES module export */
+        import { OgreMaxLoader } from '../OgreMaxLoader.js';
 
-                       controls = new OrbitControls(camera, renderer.domElement);
+        /* ── Renderer / scene / camera setup ──────────────────────────── */
+        const canvas = document.getElementById('container');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
 
-                       // loader.texturePath = './res/otherTextures/';
-                       loader.load('./res/models/PlayerMdl.scene', onLoad, e=>{}, err=>{ console.error(err); });
+        const scene = new THREE.Scene();
 
-                       function onLoad(loadedScene){
-                               const mesh = loadedScene.getObjectByName('PlayerMdl').children[0];
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(2, 1, 2);
 
-                               const group = new THREE.Group();
-                               const axisHelper = new THREE.AxesHelper(5.02);
-                               const gridHelper = new THREE.GridHelper(5, 10, new THREE.Color(0x007d00), new THREE.Color(0x007d00));
-                               const skelHelper = new THREE.SkeletonHelper(mesh);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
 
-                               axisHelper.position.set(-2.51, -0.95, -2.51);
-                               gridHelper.position.set(0, -0.95, 0);
+        const clock = new THREE.Clock();
+        let mixer;                       // Animation mixer created after load
 
-                               mixer = new THREE.AnimationMixer(mesh);
-                               const saluteAnim = mixer.clipAction('StandESaluteA');
-                               saluteAnim.play();
+        /* ── Load OgreMax (.scene) ────────────────────────────────────── */
+        const loader = new OgreMaxLoader();
+        // loader.texturePath = './res/otherTextures/';      // optional override
 
-                               group.name = 'external';
-                               group.add(axisHelper);
-                               group.add(gridHelper);
-                               group.add(skelHelper);
-                               group.add(camera);
-                               loadedScene.add(group);
-                               scene = loadedScene;
+        loader.load(
+            './res/models/PlayerMdl.scene',
+            handleSceneLoaded,
+            (loaded, total) => console.log(`progress: ${loaded}/${total}`),
+            console.error
+        );
 
-                               console.log('Finished scene:');
-                               console.log(scene);
+        /* Callback executed once every dependency is ready */
+        function handleSceneLoaded(loadedScene) {
+            scene.add(loadedScene);                        // add full Ogre scene
 
-                               animate();
-                       }
+            // Retrieve the SkinnedMesh by name
+            const mesh = loadedScene.getObjectByName('PlayerMdl')?.children[0];
+            if (!mesh) {
+                console.warn('Mesh "PlayerMdl" not found');
+                return;
+            }
 
-                       const animate = () => {
-                               requestAnimationFrame(animate);
-                               render();
-                               controls.update();
-                       };
+            // Helpers: grid, axes, skeleton
+            const helpers = new THREE.Group();
+            helpers.add(new THREE.GridHelper(5, 10, 0x007d00, 0x007d00));
+            helpers.add(new THREE.AxesHelper(5));
+            helpers.add(new THREE.SkeletonHelper(mesh));
+            scene.add(helpers);
 
-                       const render = () => {
-                               const delta = clock.getDelta() * 0.75;
-                               if(mixer) mixer.update(delta);
-                               renderer.render(scene, camera);
-                       };
-               </script>
-       </head>
+            // Animation mixer – play clip "StandESaluteA"
+            mixer = new THREE.AnimationMixer(mesh);
+            const clip = mixer.clipAction('StandESaluteA');
+            clip.play();
 
-	<body style="background-color: #0B0E13;">
-		<div id="container"></div>
+            animate();                                     // start render loop
+        }
 
-		
-	</body>
+        /* ── Render loop ─────────────────────────────────────────────── */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = clock.getDelta() * 0.75;
+            if (mixer) mixer.update(dt);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        /* ── Responsive resize ───────────────────────────────────────── */
+        window.addEventListener('resize', () => {
+            const { innerWidth: w, innerHeight: h } = window;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+    </script>
+</body>
 </html>
