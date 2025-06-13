@@ -53,7 +53,7 @@
  *
  * @author    Blackcancer <init-sys-rev@hotmail.com>
  * @copyright 2025
- * @version   1.0 – 2025-06-11  (ES2023, UV fix, DotMaterialLoader overhaul)
+ * @version   1.1 – 2025-06-11  (Fix the mesh geometry and textures)
  * @license   MIT
  * @module    OgreMaxLoader
  */
@@ -66,43 +66,42 @@ THREE.Cache.enabled = true;
  * Loads OgreMax XML files and converts them to Three.js objects.
  * @extends THREE.Loader
  */
-class OgreMaxLoader extends THREE.Loader {
+export class OgreMaxLoader extends THREE.Loader {
 	/* ====================================================================== */
 	/* Private internal state (not exposed to the end-user)                   */
 	/* ====================================================================== */
 	/** @type {THREE.LoadingManager} */
-	#internalManager	= new THREE.LoadingManager();
+	#internalManager = new THREE.LoadingManager();
 
 	/** @type {Object.<string,*>} collects partial results during parsing */
-	#objectRoot			= {};
+	#objectRoot = {};
 
-	#url				= '';
-	#texturePath		= '';
-    #busy				= false;
+	#url = '';
+	#texturePath = '';
+	#busy = false;
+	#logOpen = false;	// true when a group is active
 
 
 	/* ====================================================================== */
 	/* Construction / configuration                                           */
 	/* ====================================================================== */
-	/**
-	 * @param {THREE.LoadingManager} [manager] – reuse an existing manager (defaults to a fresh one).
-	 */
-	constructor(manager = new THREE.LoadingManager()){
-		super(manager);	// initialise this.manager
+	/** @param {THREE.LoadingManager} [manager] – reuse an existing manager (defaults to a fresh one). */
+	constructor(manager = new THREE.LoadingManager()) {
+		super(manager);
 	}
 
 	/* ----------------------- public accessors ------------------------- */
-    /** @returns {string} absolute or relative path to the Ogre XML file */
-	get texturePath(){return this.#texturePath;}
+	/** @returns {string} absolute or relative path to the Ogre XML file */
+	get texturePath() { return this.#texturePath; }
 
 	/**
 	 * Set the path where textures are located (relative to the XML file).
 	 * This is used by the {@link THREE.DotMaterialLoader} to resolve texture URLs.
 	 * @param {string} value – absolute or relative path
 	 */
-	set texturePath(value){
+	set texturePath(value) {
 		if (typeof value !== 'string') {
-            throw new OgreMaxError('E_RUNTIME', `texturePath must be a string!`);
+			throw new OgreMaxError('E_RUNTIME', `texturePath must be a string!`);
 		}
 
 		this.#texturePath = value;
@@ -126,7 +125,7 @@ class OgreMaxLoader extends THREE.Loader {
 			throw new OgreMaxError('E_RUNTIME', 'Loader already in progress');
 		}
 
-        this.#busy = true;
+		this.#busy = true;
 		return new Promise((resolve, reject) => {
 
 			const fail = (err) => {
@@ -149,26 +148,27 @@ class OgreMaxLoader extends THREE.Loader {
 
 			//Setup internal manager for eventual files like mesh, materials...
 			this.#internalManager.onStart = (file, loaded, total) => {
-				console.groupCollapsed(`[OgreMaxLoader]`);
-				console.log(`[OgreMaxLoader] Started loading of ${file}`);
-				console.log(`		Loaded: ${loaded}/${total}`);
+				this.#logStart(file);
+				console.log(`Started   : ${file}`);
+				console.log(`Progress  : ${loaded}/${total}`);
 			};
 
 			this.#internalManager.onProgress = (file, loaded, total) => {
-				console.log(`[OgreMaxLoader] Loading ${file}`);
-				console.log(`		Loaded: ${loaded} / ${total}`);
+				console.log(`Loading   : ${file}  (${loaded}/${total})`);
 
 				// can be used to make progression bar
 				onProgress(loaded, total);
 			};
 
 			this.#internalManager.onError = file => {
+				console.error(`Error     : ${file}`);
+				this.#logEnd();                         // ensure the group is closed
 				fail(new OgreMaxError('E_RUNTIME', `dependency error on ${file}`, { file }));
 			};
 
 			this.#internalManager.onLoad = () => {
-				console.log(`[OgreMaxLoader] All files loaded!`);
-				console.groupEnd();
+				console.log('All done');
+				this.#logEnd();                         // close the final group
 				try {
 					this.#busy = false;          // ← libère l’instance
 					this.#finalize(url, onLoad, resolve);
@@ -193,12 +193,12 @@ class OgreMaxLoader extends THREE.Loader {
 					} catch (err) {
 						fail(err);
 					}
-                },																	// prog. par fichier (optionnel)
+				},																	// prog. par fichier (optionnel)
 				progress => onProgress(progress.loaded, progress.total ?? 0),		// prog. par fichier (optionnel)
 				() => fail(new OgreMaxError("E_IO", `Cannot load ${url}`, { url }))	// erreur
 			);
-        });
-    }
+		});
+	}
 
 	/**
 	 * Parse the XML string into Three.js objects.
@@ -207,11 +207,11 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @returns {{scene?:THREE.Scene, mesh?:THREE.SkinnedMesh, skeleton?:{skeleton:THREE.Skeleton, animations:THREE.AnimationClip[]}}} - parsed data object
 	 * @throws {OgreMaxError}		- if the root node is not recognized
 	 */
-	parse(xml){
+	parse(xml) {
 		const root = xml.documentElement;
 		const data = {};
 
-		switch (root.nodeName){
+		switch (root.nodeName) {
 			case 'scene':
 				data.scene = this.#parseScene(root);
 				break;
@@ -222,8 +222,9 @@ class OgreMaxLoader extends THREE.Loader {
 				data.skeleton = this.#parseSkeleton(root);
 				break;
 			default:
-				throw new OgreMaxError( "E_XML", `Unknown root node <${root.nodeName}>`, { url: this.#url });
+				throw new OgreMaxError("E_XML", `Unknown root node <${root.nodeName}>`, { url: this.#url });
 		}
+
 		return data;
 	}
 
@@ -239,20 +240,20 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param {Function}	onLoad	- callback to call with the final object(s)
 	 * @param {Function}	resolve	- Promise resolve function to call with the final object(s)
 	 */
-	#finalize(baseURL, onLoad, resolve){
-		if(this.#objectRoot.scene){
-			const scene   = this.#objectRoot.scene;
-			const group   = scene.children[0];
-			const base    = this.#filenameBase(this.#url);
+	#finalize(baseURL, onLoad, resolve) {
+		if (this.#objectRoot.scene) {
+			const scene = this.#objectRoot.scene;
+			const group = scene.children[0];
+			const base = this.#filenameBase(this.#url);
 
-			if(group && this.#objectRoot[base]?.materials){
+			if (group && this.#objectRoot[base]?.materials) {
 				const mats = this.#objectRoot[base].materials;
 
-				for(const object of group.children){
+				for (const object of group.children) {
 
-					for(const mesh of object.children){
-						
-						if(mesh.name){
+					for (const mesh of object.children) {
+
+						if (mesh.name && this.#objectRoot[base]) {
 							mesh.material = mats;
 						}
 					}
@@ -262,27 +263,39 @@ class OgreMaxLoader extends THREE.Loader {
 			this.manager.itemEnd(baseURL);
 			onLoad(scene);
 			resolve(scene);
-            return;
+			return;
 		}
 
-		if(this.#objectRoot.mesh){
+		if (this.#objectRoot.mesh) {
 			const mesh = this.#objectRoot.mesh;
 
-			if(this.#objectRoot.skeletonFile){
+			if (this.#objectRoot.skeletonFile) {
 				const { skel, anim } = this.#objectRoot.skeletonFile;
-				mesh.animations				= anim;
-				mesh.geometry.bones			= skel.bones;
+				mesh.animations = anim;
+				mesh.geometry.bones = skel.bones;
 				mesh.add(skel.bones[0]);
 				mesh.bind(skel);
 			}
 
 			this.manager.itemEnd(baseURL);
 			onLoad(mesh);
+			mesh.traverse(o => {
+				if (o.isMesh) {
+					const m = o.material;
+					console.table({
+						type: m.type,
+						emissive: m.emissive && m.emissive.getHexString(),
+						emissiveIntensity: m.emissiveIntensity,
+						emissiveMap: !!m.emissiveMap
+					});
+				}
+			});
+			console.log(mesh);
 			resolve(mesh);
 			return;
 		}
 
-		if(this.#objectRoot.skeleton){
+		if (this.#objectRoot.skeleton) {
 			this.manager.itemEnd(baseURL);
 			onLoad(this.#objectRoot.skeleton);
 			resolve(this.#objectRoot.skeleton);
@@ -299,17 +312,17 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @returns {void}
 	 * @throws {OgreMaxError}			- if the XML is malformed or if parsing fails
 	 */
-	#handleFileLoaded(url, response){
+	#handleFileLoaded(url, response) {
 		const xml = new DOMParser().parseFromString(response, 'text/xml');
 		if (xml.querySelector('parsererror')) {
 			throw new OgreMaxError('E_XML', 'Malformed XML', { url });
 		}
 
-		const data  = this.parse(xml);
+		const data = this.parse(xml);
 
-		if(data.scene)     this.#objectRoot.scene     = data.scene;
-		if(data.mesh)      this.#objectRoot.mesh      = data.mesh;
-		if(data.skeleton)  this.#objectRoot.skeleton  = data.skeleton;
+		if (data.scene) this.#objectRoot.scene = data.scene;
+		if (data.mesh) this.#objectRoot.mesh = data.mesh;
+		if (data.skeleton) this.#objectRoot.skeleton = data.skeleton;
 
 		this.#internalManager.itemEnd(url);
 	}
@@ -322,107 +335,68 @@ class OgreMaxLoader extends THREE.Loader {
 	 * High-level conversion from a `<mesh>` XML root to a skinned
 	 * {@link THREE.SkinnedMesh} using {@link THREE.BufferGeometry}.
 	 * @private
-	 * @param	{Element}			meshNode	- XML element `<mesh>`
-	 * @returns	{THREE.SkinnedMesh}				- the resulting skinned mesh
+	 * @param	{Element}			XMLNode	- XML element `<mesh>`
+	 * @returns	{THREE.SkinnedMesh}			- the resulting skinned mesh
 	 */
-	#parseMesh(meshNode) {
-		if (!meshNode.querySelector('sharedgeometry') &&  !meshNode.querySelector('submeshes > submesh')){
-			throw new OgreMaxError('E_XML', 'Mesh contains no geometry', {url: this.#url});
+	#parseMesh(XMLNode) {
+		const sharedGeomNode = this.#querySelect(XMLNode, 'sharedgeometry');
+		let sharedGeom;
+
+		if (sharedGeomNode) {
+			sharedGeom = this.#parseGeometry(sharedGeomNode);
 		}
 
-		// shared arrays (CPU side)
-		const positions   = [];
-		const normals     = [];
-		const uvs         = [];
-		const indices     = [];
-		const skinIndex   = [];
-		const skinWeight  = [];
-
-		// optional sharedgeometry
-		const shared = this.#q(meshNode, 'sharedgeometry');
-		if (shared){
-			this.#parseGeometry(shared, { positions, normals, uvs });
+		const submeshesNode = this.#querySelect(XMLNode, 'submeshes');
+		if (!submeshesNode) {
+			throw new OgreMaxError('E_XML', '<mesh> is missing a <submeshes> block', { url: this.#url });
 		}
 
-		const target = new THREE.BufferGeometry();
+		const submeshes = this.#parseSubmeshes(submeshesNode, sharedGeom);
+		const skelLink = this.#querySelect(XMLNode, 'skeletonlink');
 
-		// parse every submesh
-		for (const sm of meshNode.querySelectorAll('submesh')) {
-			const base			= positions.length / 3;  // vertex offset
-			const usesShared	= this.#attrB(sm, 'usesharedvertices');
-			const geoNode		= this.#q(sm, 'geometry');
-			const facesNode		= this.#q(sm, 'faces');
-			const boneNode		= this.#q(sm, 'boneassignments');
-			
-			// private geometry (unless usesSharedVertices
-			if (!usesShared && geoNode) {
-				this.#parseGeometry(geoNode, { positions, normals, uvs });
-			}
-
-			// faces → indices
-			if (facesNode) {
-				this.#parseFaces(facesNode, indices, base, base);
-			}
-
-			// bone assignments
-			if (boneNode) {
-				this.#parseBoneassignments(
-					boneNode, skinIndex, skinWeight,
-					base,                       // vertex offset
-					positions.length / 3        // new vertex count (absolute)
-				);
-			}
-		}
-
-		if (positions.length === 0) {
-			throw new OgreMaxError('E_FORMAT', 'Mesh has zero vertices', { url: this.#url });
-		}
-
-		if (indices.length % 3 !== 0) {
-			throw new OgreMaxError('E_FORMAT', `Index buffer length (${indices.length}) not multiple of 3`, { url: this.#url });
-		}
-
-		// build BufferGeometry
-		const geom = new THREE.BufferGeometry();
-		geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-		geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals,   3));
-		geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,       2));
-		geom.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
-		geom.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
-		geom.setIndex(indices);
-		geom.computeBoundingSphere();
-		geom.computeVertexNormals();
-
-		// trivial material (replace later if needed)
-		const material = new THREE.MeshStandardMaterial({
-			skinning      : true,
-			morphTargets  : true
-		});
-
-		const skinnedMesh = new THREE.SkinnedMesh(geom, material);
-
-		// optional skeleton link
-		const skelLink = this.#q(meshNode, 'skeletonlink');
 		if (skelLink) {
-			const skelURL = `${this.path}${skelLink.getAttribute('name')}.xml`;
+			const skelUrl = `${this.path}${skelLink.getAttribute('name')}.xml`;
 			const intLoad = new OgreMaxLoader(this.manager);
 
-			this.#internalManager.itemStart(skelURL);
+			this.#internalManager.itemStart(skelUrl);
+
 			intLoad.load(
-				skelURL,
+				skelUrl,
 				({ skeleton, animations }) => {
-					this.#objectRoot.skeletonFile = { skel: skeleton, anim: animations };
-					this.#internalManager.itemEnd(skelURL);
+
+					/* rattacher l’ossature à chaque SkinnedMesh */
+					submeshes.forEach(obj => {
+						if (obj.isSkinnedMesh) {
+							obj.add(skeleton.bones[0]);
+							obj.bind(skeleton);
+							obj.animations = animations;
+						}
+					});
+
+					/* mémo pour #finalize (cas mesh-seul) */
+					this.#objectRoot.skeletonFile = {
+						skel: skeleton,
+						anim: animations
+					};
+					this.#internalManager.itemEnd(skelUrl);
 				},
-				() => {},
-				err => {
-					this.#internalManager.itemError(skelURL);
-					throw err;
-				}
+				() => { },
+				() => this.#internalManager.itemError(skelUrl)
 			);
 		}
 
-		return skinnedMesh;
+		if (submeshes.length === 1) {
+			return submeshes[0]; // un seul submesh, on le retourne directement
+		}
+
+		const group = new THREE.Group();
+		group.name = XMLNode.getAttribute('name') ?? 'mesh';
+
+		submeshes.forEach(submesh => {
+			group.add(submesh); // ajoute chaque submesh au groupe
+		});
+
+        return group; // retourne le groupe contenant tous les submeshes
 	}
 
 	/**
@@ -431,9 +405,9 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{Element}		sceneNode	- XML element `<scene>`
 	 * @returns	{THREE.Scene}				- the resulting scene object
 	 */
-	#parseScene(sceneNode){
-		const env = this.#q(sceneNode, 'environment');
-		const nodes = this.#q(sceneNode, 'nodes');
+	#parseScene(sceneNode) {
+		const env = this.#querySelect(sceneNode, 'environment');
+		const nodes = this.#querySelect(sceneNode, 'nodes');
 		const scene = new THREE.Scene();
 		const upAxis = (sceneNode.getAttribute('upAxis') || 'y').toLowerCase();
 
@@ -444,20 +418,20 @@ class OgreMaxLoader extends THREE.Loader {
 		); // (1,0,0) / (0,1,0) / (0,0,1)
 
 		scene.userData = {
-			formatVersion : this.#attrF(sceneNode, 'formatVersion', 0),
-			minOgreVersion: this.#attrF(sceneNode, 'minOgreVersion', 0),
-			ogreMaxVersion: this.#attrF(sceneNode, 'ogreMaxVersion', 0),
-			unitsPerMeter : this.#attrF(sceneNode, 'unitsPerMeter', 1),
-			unitType      : sceneNode.getAttribute('unitType') || 'meters',
-			author        : sceneNode.getAttribute('author')   || undefined,
-			application   : sceneNode.getAttribute('application') || undefined
+			formatVersion: this.#attrFloat(sceneNode, 'formatVersion', 0),
+			minOgreVersion: this.#attrFloat(sceneNode, 'minOgreVersion', 0),
+			ogreMaxVersion: this.#attrFloat(sceneNode, 'ogreMaxVersion', 0),
+			unitsPerMeter: this.#attrFloat(sceneNode, 'unitsPerMeter', 1),
+			unitType: sceneNode.getAttribute('unitType') || 'meters',
+			author: sceneNode.getAttribute('author') || undefined,
+			application: sceneNode.getAttribute('application') || undefined
 		};
 
-		if(nodes){
+		if (nodes) {
 			scene.add(this.#parseNodes(nodes));
 		}
 
-		if(env){
+		if (env) {
 			scene.add(this.#parseEnvironment(env));
 		}
 
@@ -467,25 +441,27 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Build a THREE.Skeleton + animations array from a <skeleton> XML root.
 	 * @private
-	 * @param	{Element}														skelNode	- XML element `<skeleton>`
-	 * @returns	{{skeleton:THREE.Skeleton,animations:THREE.AnimationClip[]}}				- the resulting skeleton and animations
+	 * @param	{Element}														XMLNode	- XML element `<skeleton>`
+	 * @returns	{{skeleton:THREE.Skeleton,animations:THREE.AnimationClip[]}}			- the resulting skeleton and animations
 	 */
-	#parseSkeleton(skelNode){
-		const animNode		= this.#q(skelNode, 'animations');
-		const bonesNode = this.#q(skelNode, 'bones');
-		const hierNode		= this.#q(skelNode, 'bonehierarchy');
+	#parseSkeleton(XMLNode) {
+		const animationsNode = this.#querySelect(XMLNode, 'animations');
+		const bonesNode = this.#querySelect(XMLNode, 'bones');
+		const bonehierarchyNode = this.#querySelect(XMLNode, 'bonehierarchy');
+		let skeleton = new THREE.Skeleton([]);
+		let animations = [];
 
-		if (!bonesNode || !hierNode) {
+		if (!bonesNode || !bonehierarchyNode && animations) {
 			throw new OgreMaxError('E_XML', '<skeleton> is missing <bones> or <bonehierarchy>', { url: this.#url });
 		}
 
-		const bones			= bonesNode ? this.#parseBones(bonesNode) : [];
-		const animations	= animNode ? this.#parseAnimations(animNode, bones) : [];
-		let   skeleton		= new THREE.Skeleton([]);
-
-		if(hierNode){
-			skeleton = new THREE.Skeleton(this.#parseBoneHierarchy(hierNode, bones));
+		if (!bonesNode || !bonehierarchyNode) {
+			return { skeleton, animations };
 		}
+
+		const bones = bonesNode ? this.#parseBones(bonesNode) : [];
+		animations = animationsNode ? this.#parseAnimations(animationsNode, bones) : animations;
+		skeleton = bonehierarchyNode ? new THREE.Skeleton(this.#parseBoneHierarchy(bonehierarchyNode, bones)) : skeleton;
 
 		return { skeleton, animations };
 	}
@@ -517,12 +493,12 @@ class OgreMaxLoader extends THREE.Loader {
 			return;
 		}
 
-        // prepare normal matrix if needed
+		// prepare normal matrix if needed
 		const normalMatrix = matrix ? new THREE.Matrix3().getNormalMatrix(matrix) : null;
 		const tmpPos = new THREE.Vector3();
 		const tmpNrm = new THREE.Vector3();
 
-        /** list of attributes to merge: name, itemSize, DefaultArrayType
+		/** list of attributes to merge: name, itemSize, DefaultArrayType
 		 * @type {[string,number,Function][]}
 		 */
 		const ATTR = [
@@ -533,7 +509,7 @@ class OgreMaxLoader extends THREE.Loader {
 			['skinWeight', 4, Float32Array]
 		];
 
-        // for each attribute present in geomSrc
+		// for each attribute present in geomSrc
 		for (const [name, itemSize, DefaultArray] of ATTR) {
 
 			const srcAttr = geomSrc.getAttribute(name);
@@ -545,16 +521,16 @@ class OgreMaxLoader extends THREE.Loader {
 			const NewArray = srcAttr.array.constructor || DefaultArray;
 			const merged = new NewArray((dstCount + srcCount) * itemSize);
 
-            // copy existing attribute data (if any)
+			// copy existing attribute data (if any)
 			if (dstAttr) {
 				merged.set(dstAttr.array, 0);
 			}
 
-            // merge offset in the destination array
+			// merge offset in the destination array
 			let writeOfs = dstCount * itemSize;
 			for (let i = 0; i < srcCount; ++i) {
 
-                // position / normal : apply matrix if provided
+				// position / normal : apply matrix if provided
 				if (name === 'position') {
 					tmpPos.fromBufferAttribute(srcAttr, i);
 					if (matrix) tmpPos.applyMatrix4(matrix);
@@ -573,7 +549,7 @@ class OgreMaxLoader extends THREE.Loader {
 					merged[writeOfs++] = tmpNrm.y;
 					merged[writeOfs++] = tmpNrm.z;
 				}
-                // vectorial attributes (uv, skinIndex, skinWeight)
+				// vectorial attributes (uv, skinIndex, skinWeight)
 				else {
 					merged.set(
 						srcAttr.array.subarray(i * itemSize, i * itemSize + itemSize),
@@ -583,7 +559,7 @@ class OgreMaxLoader extends THREE.Loader {
 				}
 			}
 
-            // install merged attribute in geomDst
+			// install merged attribute in geomDst
 			geomDst.setAttribute(name, new THREE.BufferAttribute(merged, itemSize, srcAttr.normalized));
 		}
 
@@ -626,30 +602,32 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param {number}    baseVertex	- absolute vertex count before geometry push
 	 * @param {number}    endVertex		- absolute vertex count after geometry push
 	 */
-	#parseBoneassignments(baNode, skinIdx, skinWgt, baseVertex, endVertex) {
-
+	#parseBoneassignments(XMLNode, skinIdx, skinWgt, baseVertex, endVertex) {
 		for (let v = baseVertex; v < endVertex; ++v) {
 			skinIdx.push(0, 0, 0, 0);
 			skinWgt.push(0, 0, 0, 0);
 		}
 
-		for (const a of baNode.querySelectorAll('vertexboneassignment')) {
+		const assignmentNodes = this.#querySelectAll(XMLNode, ':scope > vertexboneassignment, :scope > boneassignment');
 
-			const vRel = this.#attrI(a, 'vertexindex');
-			const vAbs = baseVertex + vRel;
+		for (const assignmentNode of assignmentNodes) {
+			const vIndex = this.#attrInt(assignmentNode, 'vertexindex');
+			const bIndex = this.#attrInt(assignmentNode, 'boneindex');
+			const weight = this.#attrFloat(assignmentNode, 'weight', 0);
+
+			const vAbs = baseVertex + vIndex;
+
+
 			if (vAbs >= endVertex) {
-				throw new OgreMaxError('E_RANGE', `vertexindex ${vRel} out of range (base ${baseVertex}, end ${endVertex})`, { assignment: a.outerHTML });
+				throw new OgreMaxError('E_RANGE', `vertexindex ${vIndex} out of range (base ${baseVertex}, end ${endVertex})`, { assignment: assignmentNode.outerHTML });
 			}
-
-			const bone = this.#attrI(a, 'boneindex');
-			const weight = this.#attrF(a, 'weight');
 
 			// find free slot (max 4)
 			let placed = false;
 			for (let s = 0; s < 4; ++s) {
 				const off = vAbs * 4 + s;
 				if (skinWgt[off] === 0) {
-					skinIdx[off] = bone;
+					skinIdx[off] = bIndex;
 					skinWgt[off] = weight;
 					placed = true;
 					break;
@@ -657,7 +635,7 @@ class OgreMaxLoader extends THREE.Loader {
 			}
 
 			if (!placed) {
-				throw new OgreMaxError('E_FORMAT', `More than 4 bone influences for vertex ${vRel}`, { assignment: a.outerHTML });
+				throw new OgreMaxError('E_FORMAT', `More than 4 bone influences for vertex ${vIndex}`, { assignment: assignmentNode.outerHTML });
 			}
 		}
 	}
@@ -665,262 +643,292 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Parse a single <face>.
 	 * @private
-	 * @param	{Element}													fNode	- XML element `<face>`
+	 * @param	{Element}													XMLNode	- XML element `<face>`
 	 * @param	{THREE.Vector3[]}											normals	- array of vertex normals
 	 * @param	{(THREE.Vector2|THREE.Vector3)[]}							uvs		- array of vertex UVs
-	 * @returns	{{face:THREE.Face3, uvSet:(THREE.Vector2|THREE.Vector3)[]}}			- the parsed face and its UV set
+	 * @returns	{{face:THREE.Face3, uvs:(THREE.Vector2|THREE.Vector3)[]}}			- the parsed face and its UV set
 	 */
-	#parseFace(fNode, normals, uvs){
-		const v1 = this.#attrI(fNode,'v1');
-		const v2 = this.#attrI(fNode,'v2');
-		const v3 = this.#attrI(fNode,'v3');
-		const n  = [ normals[v1], normals[v2], normals[v3] ];
-		const uv = [ uvs[v1],     uvs[v2],     uvs[v3]     ];
+	#parseFace(XMLNode, normals, uvs) {
+		const v1 = this.#attrInt(XMLNode, 'v1');
+		const v2 = this.#attrInt(XMLNode, 'v2');
+		const v3 = this.#attrInt(XMLNode, 'v3');
+		const normal = [normals[v1], normals[v2], normals[v3]];
+		const uv = [uvs[v1], uvs[v2], uvs[v3]];
 
-		return { face: new THREE.Face3(v1, v2, v3, n), uvSet: uv };
+		return { v1, v2, v3, normal, uv };
 	}
 
 	/**
 	 * Parse `<faces>` and push indices into the global array.
 	 * @private
-	 * @param	{Element}	facesNode	- XML element `<faces>`
-	 * @param	{number[]}	indices		- array to push indices into
-	 * @param	{number}	base		- base vertex index (offset)
-	 * @param	{number}	vertCount	- total vertex count (for range check)
-	 * @returns	{void}
+	 * @param	{Element}							XMLNode		- XML element `<faces>`
+	 * @param	{number}							base		- base vertex index (offset)
+	 * @param	{number}							vertCount	- total vertex count (for range check)
+	 * @param	{THREE.Vector3[]}					normals		- array of vertex normals
+	 * @param	{(THREE.Vector2|THREE.Vector3)[]}	uvs			- array of vertex UVs
+	 * @returns	{{faces:number[], faceNormals:THREE.Vector3[], faceUvs:(THREE.Vector2|THREE.Vector3)[]}} - parsed faces, normals and UVs
 	 * @throws {OgreMaxError}			- if a face index is out of range
 	 */
-	#parseFaces(facesNode, indices, base, vertCount) {
-		for (const f of facesNode.querySelectorAll(':scope > face')) {
-			const v1 = base + this.#attrI(f, 'v1');
-			const v2 = base + this.#attrI(f, 'v2');
-			const v3 = base + this.#attrI(f, 'v3');
+	#parseFaces(XMLNode, base, vertCount, normals, uvs) {
+		const faces = [], faceNormals = [], faceUvs = [];
+		const faceNodes = this.#querySelectAll(XMLNode, ':scope > face');
+
+		for (const faceNode of faceNodes) {
+			const { v1, v2, v3, normal, uv } = this.#parseFace(faceNode, normals, uvs);
+
+			const a = base + v1;
+			const b = base + v2;
+			const c = base + v3;
 
 			if (v1 >= vertCount || v2 >= vertCount || v3 >= vertCount) {
-				throw new OgreMaxError('E_RANGE', `Face index out of range (v1:${v1} v2:${v2} v3:${v3} >= ${vertCount})`, {node: f.outerHTML, url: this.#url });
+				throw new OgreMaxError('E_RANGE', `Face index out of range (v1:${a} v2:${b} v3:${c} >= ${vertCount})`, { node: faceNode.outerHTML, url: this.#url });
 			}
 
-			indices.push(v1, v2, v3);
+			faces.push(a, b, c);
+			faceNormals.push(normal);
+			faceUvs.push(uv);
 		}
+
+        return { faces, faceNormals, faceUvs };
 	}
 
 	/**
 	 * Push vertex data of a `<geometry>` / `<sharedgeometry>` block into
 	 * the provided accumulators.
 	 * @private
-	 * @param	{Element}												geoNode - XML element `<geometry>` or `<sharedgeometry>`
-	 * @param	{{positions:number[],normals:number[],uvs:number[]}}	acc		- accumulators for vertex data
-	 * @returns {number}														- the number of vertices parsed
-	 * @throws {OgreMaxError}													- if vertexcount differs from parsed count
+	 * @param	{Element}												XMLNode - XML element `<geometry>` or `<sharedgeometry>`
+	 * @returns	{{globalVertices:THREE.Vector3[], globalNormals:THREE.Vector3[], globalUvs:(THREE.Vector2|THREE.Vector3)[]}[]} - accumulators for vertices, normals and UVs
+	 * @throws	{OgreMaxError}													- if vertexcount differs from parsed count
 	 */
-	#parseGeometry(geoNode, acc) {
-		const start = acc.positions.length / 3;
+	#parseGeometry(XMLNode) {
+		const globalNormals = [], globalUvs = [], globalVertices = [];
+        const vertexBufferNodes = XMLNode.querySelectorAll(':scope > vertexbuffer');
+		const declared = this.#attrInt(XMLNode, 'vertexcount', 0);
 
-		for (const vb of geoNode.querySelectorAll(':scope > vertexbuffer')) {
-			this.#parseVertexbuffer(vb, acc);
+		for (const vertexBufferNode of vertexBufferNodes) {
+			const { vertices, normals, uvs } = this.#parseVertexbuffer(vertexBufferNode);
+
+			globalVertices.push(...vertices);
+			globalNormals.push(...normals);
+            globalUvs.push(...uvs);
 		}
 
-		const added = (acc.positions.length / 3) - start;
-		const declared = this.#attrI(geoNode, 'vertexcount', added);
-		if (declared !== added) {
-			throw new OgreMaxError('E_FORMAT', `vertexcount ${declared} differs from parsed ${added}`, { url: this.#url });
+		if (declared && declared !== globalVertices.length) {
+			throw new OgreMaxError('E_FORMAT', `vertexcount ${declared} differs from parsed ${globalVertices.length}`, { url: this.#url });
 		}
 
-		/* keep global count for face-index range check */
-		return added;
+		return { vertices: globalVertices, normals: globalNormals, uvs: globalUvs };
+	}
+
+	/**
+	 * Parse a `<submeshes>` block and return an array of submeshes.
+	 * @private
+	 * @param	{Element}				XMLNode	- XML element `<submeshes>`
+	 * @param	{{vertices:THREE.Vector3[], normals:THREE.Vector3[], uvs:(THREE.Vector2|THREE.Vector3)[]}?}	shared	- optional shared geometry data (vertices, normals, uvs)
+	 * @returns {THREE.Object3D[]}				- array of parsed submeshes (SkinnedMesh or Line)
+	 * @throws	{OgreMaxError}					- if no submesh is found in the XML
+	 */
+	#parseSubmeshes(XMLNode, shared = null) {
+		const submeshes = [];
+		const submeshNodes = this.#querySelectAll(XMLNode, ':scope > submesh');
+		let materialSlot = 0;
+
+		if (submeshNodes.length === 0) {
+			throw new OgreMaxError('E_XML', 'No <submesh> found inside <submeshes>', { url: this.#url });
+		}
+
+		for (const submeshNode of submeshNodes) {
+			submeshes.push(this.#parseSubmesh(submeshNode, shared, materialSlot++));
+		}
+
+        return submeshes;
 	}
 
 	/**
 	 * Parse a single <submesh> and return a SkinnedMesh (geometry+material).
 	 * @private
-	 * @param	{Element}																					smNode	- XML element `<submesh>`
-	 * @param	{{vertices:THREE.Vector3[], normals:THREE.Vector3[], uvs:(THREE.Vector2|THREE.Vector3)[]}?}	shared	- optional shared geometry data (vertices, normals, uvs)
-	 * @returns {THREE.SkinnedMesh}																					- the resulting skinned mesh (or Line if operationtype=line_list)
+	 * @param	{Element}																					XMLNode			- XML element `<submesh>`
+	 * @param	{{vertices:THREE.Vector3[], normals:THREE.Vector3[], uvs:(THREE.Vector2|THREE.Vector3)[]}?}	shared			- optional shared geometry data (vertices, normals, uvs)
+	 * @param	{number}																					materialSlot	- material slot index (for multi-materials)
+	 * @returns {THREE.SkinnedMesh}																							- the resulting skinned mesh (or Line if operationtype=line_list)
 	 */
-	#parseSubmesh(smNode, shared = null) {
-
-        // source or shared geometry
-		const usesSV = this.#attrB(smNode, 'usesharedvertices');
-		const geoNode = this.#q(smNode, 'geometry');
-		const facesNode = this.#q(smNode, 'faces');
-		const boneNode = this.#q(smNode, 'boneassignments');
-
-        // If no shared geometry, use private accumulators
-		const acc = usesSV && shared
-			? shared
-			: { positions: [], normals: [], uvs: [] };
-
-		if (!usesSV && geoNode) {
-			this.#parseGeometry(geoNode, acc);
-		}
-
-        // indices + weights for skinning
-		const indices = [];
-		const skinIndex = [];
-		const skinWeight = [];
-
-		if (facesNode) {
-			const base = 0; // vertOffset = 0 (private accumulators)
-			this.#parseFaces(facesNode, indices, base, acc.positions.length / 3);
-		}
-
-		if (boneNode) {
-			this.#parseBoneassignments(
-				boneNode, skinIndex, skinWeight,
-				0,                             // baseVertex
-				acc.positions.length / 3       // endVertex
-			);
-		}
-
-        // BufferGeometry construction
+	#parseSubmesh(XMLNode, shared = null, materialSlot = 0) {
+		const indices = [], normals = [], skinIndex = [], skinWeight = [], uvs = [], vertices = [];
+		const geomNode = this.#querySelect(XMLNode, 'geometry');
+		const facesNode = this.#querySelect(XMLNode, 'faces');
+		const assignmentsNode = this.#querySelect(XMLNode, 'boneassignments');
+		const usesShared = this.#attrBool(XMLNode, 'usesharedvertices');
+        const use32bitindexes = this.#attrBool(XMLNode, 'use32bitindexes');
+		const opType = XMLNode.getAttribute('operationtype') || 'triangle_list';
 		const geom = new THREE.BufferGeometry();
-		geom.setAttribute('position',
-			new THREE.Float32BufferAttribute(acc.positions, 3));
-		if (acc.normals.length) {
-			geom.setAttribute('normal',
-				new THREE.Float32BufferAttribute(acc.normals, 3));
+		let base = 0;
+
+		if (usesShared) {
+			if (!shared) {
+				throw new OgreMaxError('E_FORMAT', 'usesharedvertices is true but no shared geometry provided', { node: XMLNode.outerHTML, url: this.#url });
+			}
+
+			vertices.push(...shared.vertices);
+			normals.push(...shared.normals);
+			uvs.push(...shared.uvs);
 		}
-		if (acc.uvs.length) {
-			geom.setAttribute('uv',
-				new THREE.Float32BufferAttribute(acc.uvs, 2));
+		else if (geomNode) {
+			const { vertices: geoV, normals: geoN, uvs: geoUV } = this.#parseGeometry(geomNode);
+
+			base = 0;
+			vertices.push(...geoV);
+			normals.push(...geoN);
+			uvs.push(...geoUV);
 		}
+
+        if (facesNode) {
+			const { faces, faceNormals, faceUvs } = this.#parseFaces(facesNode, base, vertices.length, normals, uvs);
+
+			indices.push(...faces);
+		}
+
+		if (assignmentsNode) {
+			this.#parseBoneassignments(assignmentsNode, skinIndex, skinWeight, 0, vertices.length);
+		}
+
+		const flatPos = vertices.flatMap(v => [v.x, v.y, v.z]);
+		const flatNorm = normals.flatMap(n => [n.x, n.y, n.z]);
+		const flatUvs = uvs.flatMap(u => u.toArray ? u.toArray() : [u.x, u.y]); // Vector2 or Vector3
+
+		geom.setAttribute('position', new THREE.Float32BufferAttribute(flatPos, 3));
+		if (flatNorm.length) {
+			geom.setAttribute('normal', new THREE.Float32BufferAttribute(flatNorm, 3));
+		}
+
+		if (flatUvs.length) {
+			geom.setAttribute('uv', new THREE.Float32BufferAttribute(flatUvs, 2));
+		}
+
 		if (skinIndex.length) {
-			geom.setAttribute('skinIndex',
-				new THREE.Uint16BufferAttribute(skinIndex, 4));
-			geom.setAttribute('skinWeight',
-				new THREE.Float32BufferAttribute(skinWeight, 4));
+			geom.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+			geom.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
 		}
-		if (indices.length) geom.setIndex(indices);
+
+		if (indices.length) {
+			const need32 = use32bitindexes || indices.length > 65535; // if we need 32-bit indices
+			const IndexType = need32 ? Uint32Array : Uint16Array;
+			geom.setIndex(new THREE.BufferAttribute(new IndexType(indices), 1));
+            geom.addGroup(0, indices.length, materialSlot); // add group for multi-materials
+		}
 
 		geom.computeBoundingSphere();
-		if (!acc.normals.length) geom.computeVertexNormals();
-
-        // base material for the skinned mesh
-		const material = new THREE.MeshStandardMaterial({
-			skinning: !!skinIndex.length,
-		});
-
-		// operationtype
-		const opType = smNode.getAttribute('operationtype') ?? 'triangle_list';
-		if (opType === 'line_list') {
-			return new THREE.Line(geom, material);
+		if (!flatNorm.length) {
+			geom.computeVertexNormals(); // compute normals if not provided
 		}
-		return new THREE.SkinnedMesh(geom, material);
+
+		const material = new THREE.MeshStandardMaterial();
+		material.skinning = !!skinIndex.length;
+		material.morphTargets = true; // for compatibility with Ogre XML
+		material.transparent = true
+
+		if (opType === 'line_list' || opType === 'line_strip') {
+			// create a Line object instead of SkinnedMesh
+			const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+			return new THREE.Line(geom, lineMaterial);
+		}
+
+		// create a SkinnedMesh for triangle lists
+		const skinnedMesh = new THREE.SkinnedMesh(geom, material);
+		skinnedMesh.name = XMLNode.getAttribute('name') || 'submesh'; // set name from attribute or default
+		skinnedMesh.castShadow = true; // enable shadow casting by default
+		skinnedMesh.receiveShadow = true; // enable shadow receiving by default
+		skinnedMesh.frustumCulled = false; // disable frustum culling for better performance in some cases
+        skinnedMesh.userData.materialSlot = materialSlot; // store material slot in userData
+		skinnedMesh.userData.operationType = opType; // store operation type in userData
+		skinnedMesh.userData.usesharedvertices = usesShared; // store shared usage in userData
+		skinnedMesh.userData.use32bitindexes = use32bitindexes; // store shared usage in userData
+
+        return skinnedMesh;
 	}
 
 	/**
 	 * Parse one <vertex>.
 	 * @private
-	 * @param	{Element}																			vNode	- XML element `<vertex>`
+	 * @param	{Element}																			XMLNode	- XML element `<vertex>`
 	 * @param	{boolean}																			hasPos	- true if the vertex has a position
 	 * @param	{boolean}																			hasNorm	- true if the vertex has a normal
 	 * @param	{number}																			tcCount	- number of texture coordinates (0, 1, 2 or 3)
 	 * @param	{number[]}																			tcDim	- array of texture coordinate dimensions (1, 2 or 3)
-	 * @returns {{vert:THREE.Vector3[], norm:THREE.Vector3[], uv:(THREE.Vector2|THREE.Vector3)[]}}			- the parsed vertex data
+	 * @returns {{vertices:THREE.Vector3[], normals:THREE.Vector3[], uvs:(THREE.Vector2|THREE.Vector3)[]}}	- the parsed vertex data
 	 */
-	#parseVertex(vNode, hasPos, hasNorm, tcCount, tcDim){
-		const vert = [], norm = [], uv = [];
+	#parseVertex(XMLNode, hasPos, hasNorm, tcCount, tcDim) {
+		const normals = [], uvs = [], vertices = [];
 
-		if(hasPos){
-			const p = this.#q(vNode, 'position');
+		if (hasPos) {
+			// added [0] to ensure we get an array of Vector3, not a single Vector3
+			const positionNode = this.#querySelect(XMLNode, 'position');
 
-			vert.push(this.#attrVector(p));
+			vertices.push(this.#attrVector3(positionNode));
 		}
 
-		if(hasNorm){
-			const n = this.#q(vNode, 'normal');
+		if (hasNorm) {
+			const normalNode = this.#querySelect(XMLNode, 'normal');
 
-			norm.push(this.#attrVector(n));
+			normals.push(this.#attrVector3(normalNode));
 		}
 
-		if(tcCount){
-			const texList = vNode.querySelectorAll('texcoord');
+		if (tcCount) {
+			const texCoords = XMLNode.querySelectorAll('texcoord');
 
-			for(let i = 0; i < tcCount; ++i){
-				const t = texList[i];
+			for (let i = 0; i < tcCount; ++i) {
+				const texCoord = texCoords[i];
 
-				switch (tcDim[i]){
-					case 1: uv.push(new THREE.Vector2(this.#attrF(t,'u'), 0)); break;
-					case 2: uv.push(new THREE.Vector2(this.#attrF(t,'u'), this.#attrF(t,'v'))); break;
-					case 3: uv.push(new THREE.Vector3(this.#attrF(t,'u'), this.#attrF(t,'v'), this.#attrF(t,'w'))); break;
+				switch (tcDim[i]) {
+					case 1:
+						uvs.push(this.#attrU(texCoord));
+						break;
+					case 2:
+						uvs.push(this.#attrUV(texCoord));
+						break;
+					case 3:
+						uvs.push(this.#attrUVW(texCoord));
+						break;
 				}
 			}
 		}
 
-		return { vert, norm, uv };
+		return { vertices, normals, uvs };
 	}
 
 	/**
 	 * Parse one `<vertexbuffer>` and append its content to accumulators.
 	 * @private
-	 * @param	{Element}												vbNode	- XML element `<vertexbuffer>`
-	 * @param	{{positions:number[],normals:number[],uvs:number[]}}	acc		- accumulators for vertex data
-	 * @returns	{void}
+	 * @param	{Element}												XMLNode	- XML element `<vertexbuffer>`
+	 * @returns	{{globalVertices:number[], globalNormals:number[], globalUvs:(THREE.Vector2|THREE.Vector3)[]}}	- the parsed vertex data
 	 */
-	#parseVertexbuffer(vbNode, acc) {
-		const hasPos  = this.#attrB(vbNode, 'positions');
-		const hasNorm = this.#attrB(vbNode, 'normals');
-		const tcCount = this.#attrI(vbNode, 'texture_coords', 0);
+	#parseVertexbuffer(XMLNode) {
+		const globalNormals = [], globalUvs = [], globalVertices = [];
+		const hasPos = this.#attrBool(XMLNode, 'positions');
+		const hasNorm = this.#attrBool(XMLNode, 'normals');
+		const tcCount = this.#attrInt(XMLNode, 'texture_coords', 0);
+		const vertexNodes = this.#querySelectAll(XMLNode, ':scope > vertex');
 
 		// texture_coord_dimensions_n  (default 2)
 		const tcDim = Array.from({ length: tcCount }, (_, i) => {
-			const raw = vbNode.getAttribute(`texture_coord_dimensions_${i}`);
-			const dim = raw ? parseInt(raw.replace('float', ''), 10) : 2;
+			const texCoordNode = XMLNode.getAttribute(`texture_coord_dimensions_${i}`);
+			const dimension = texCoordNode ? parseInt(texCoordNode.replace('float', ''), 10) : 2;
 
-			if (![1, 2, 3].includes(dim)) {
-				throw new OgreMaxError('E_FORMAT', `texture_coord_dimensions_${i} = ${dim} (expected 1/2/3)`, { node: vbNode.outerHTML });
+			if (![1, 2, 3].includes(dimension)) {
+				throw new OgreMaxError('E_FORMAT', `texture_coord_dimensions_${i} = ${dimension} (expected 1/2/3)`, { node: XMLNode.outerHTML });
 			}
 
-			return dim;
+			return dimension;
 		});
 
-		const vList = vbNode.querySelectorAll(':scope > vertex');
-		const vertTot = vList.length;
-		let uvPtr = 0;
-		let uvTmp = tcCount ? new Float32Array(vertTot * 2) : null;
+		for (const vertexNode of vertexNodes) {
+			const { vertices, normals, uvs } = this.#parseVertex(vertexNode, hasPos, hasNorm, tcCount, tcDim);
 
-		for (const vNode of vList) {
-
-			// positions
-			if (hasPos) {
-				const p = this.#q(vNode, 'position');
-				
-				acc.positions.push(
-					this.#attrF(p,'x',0),
-					this.#attrF(p,'y',0),
-					this.#attrF(p,'z',0)
-				);
-			}
-
-			// normals
-			if (hasNorm) {
-				const n = this.#q(vNode, 'normal');
-				
-				acc.normals.push(
-					this.#attrF(n,'x',0),
-					this.#attrF(n,'y',0),
-					this.#attrF(n,'z',0)
-				);
-			}
-
-			// UV sets
-			if (tcCount) {
-				const texList = vNode.querySelectorAll('texcoord');
-
-				for (let i = 0; i < tcCount; ++i) {
-					const t = texList[i];
-					const u = this.#attrF(t, 'u', 0);
-					const v = this.#attrF(t, 'v', 0);
-
-					uvTmp[uvPtr++] = u;
-					uvTmp[uvPtr++] = v;
-				}
-			}
-
-			if (uvTmp) {
-				acc.uvs.push(...uvTmp);
-			}
+			globalVertices.push(...vertices);
+			globalNormals.push(...normals);
+            globalUvs.push(...uvs);
 		}
+
+		return { vertices: globalVertices, normals: globalNormals, uvs: globalUvs };
 	}
 
 
@@ -934,27 +942,27 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{Element}		envNode	– XML element `<environment>`
 	 * @returns {THREE.Group}			– contains ambient light, userData etc.
 	 */
-	#parseEnvironment(envNode){
-		const amb = this.#q(envNode, 'colourAmbient');
-		const bg = this.#q(envNode, 'colourBackground');
-		const clip = this.#q(envNode, 'clipping');
+	#parseEnvironment(envNode) {
+		const amb = this.#querySelect(envNode, 'colourAmbient');
+		const bg = this.#querySelect(envNode, 'colourBackground');
+		const clip = this.#querySelect(envNode, 'clipping');
 		const grp = new THREE.Group();
-		grp.name  = 'environment';
+		grp.name = 'environment';
 
-		if(amb){
-			const ambLight    = new THREE.AmbientLight(this.#attrColor(amb));
-			
+		if (amb) {
+			const ambLight = new THREE.AmbientLight(this.#attrColorRGB(amb));
+
 			grp.add(ambLight);
 		}
 
-		if(bg){
-			grp.userData.background = this.#attrColor(bg);
+		if (bg) {
+			grp.userData.background = this.#attrColorRGB(bg);
 		}
 
-		if(clip){
+		if (clip) {
 			grp.userData.clipping = {
-				near: this.#attrF(clip, 'near', 0),
-				far : this.#attrF(clip, 'far' , 1)
+				near: this.#attrFloat(clip, 'near', 0),
+				far: this.#attrFloat(clip, 'far', 1)
 			};
 		}
 
@@ -970,19 +978,19 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{THREE.Object3D}	parentObj	– parent object that receives the mesh
 	 * @returns	{void}
 	 */
-	#parseEntity(entityNode, parentObj){
+	#parseEntity(entityNode, parentObj) {
 		const meshFile = entityNode.getAttribute('meshFile');
 
-		if(!meshFile){
+		if (!meshFile) {
 			console.warn('Entity sans meshFile :', entityNode);
 			return;
 		}
 
 		const meshURL = `${this.path}${meshFile}.xml`;
 		const intLoader = new OgreMaxLoader(this.manager);
-		const subEntities = this.#q(entityNode, 'subentities');
+		const subEntities = this.#querySelect(entityNode, 'subentities');
 
-		if(subEntities){
+		if (subEntities) {
 			this.#parseSubEntities(subEntities);
 		}
 
@@ -991,14 +999,14 @@ class OgreMaxLoader extends THREE.Loader {
 		intLoader.load(
 			meshURL,
 			mesh => {
-				mesh.name          = entityNode.getAttribute('name') || mesh.name;
-				mesh.castShadow    = this.#attrB(entityNode, 'castShadows'   , mesh.castShadow);
-				mesh.receiveShadow = this.#attrB(entityNode, 'receiveShadows', mesh.receiveShadow);
+				mesh.name = entityNode.getAttribute('name') || mesh.name;
+				mesh.castShadow = this.#attrBool(entityNode, 'castShadows', mesh.castShadow);
+				mesh.receiveShadow = this.#attrBool(entityNode, 'receiveShadows', mesh.receiveShadow);
 
 				parentObj.add(mesh);
 				this.#internalManager.itemEnd(meshURL);
 			},
-			() => {},
+			() => { },
 			() => this.#internalManager.itemError(meshURL)
 		);
 	}
@@ -1009,15 +1017,15 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{Element}			node	– XML element `<node>`
 	 * @returns	{THREE.Object3D}			– root object for this branch
 	 */
-	#parseNode(node){
-		const entity	 = this.#q(node, ':scope > entity');
-		const obj			 = new THREE.Object3D();
+	#parseNode(node) {
+		const entity = this.#querySelect(node, ':scope > entity');
+		const obj = new THREE.Object3D();
 
-		obj.name       = node.getAttribute('name') || '';
-		obj.visible    = this.#attrB(node, 'visibility', true);
+		obj.name = node.getAttribute('name') || '';
+		obj.visible = this.#attrBool(node, 'visibility', true);
 		obj.applyMatrix4(this.#attrMatrix(node));
 
-		if(entity){
+		if (entity) {
 			this.#parseEntity(entity, obj);
 		}
 
@@ -1036,10 +1044,10 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{Element}		nodesNode	– XML element `<nodes>`
 	 * @returns	{THREE.Group}				– assembled hierarchy
    */
-	#parseNodes(nodesNode){
+	#parseNodes(nodesNode) {
 		const grp = new THREE.Group();
 
-		grp.name  = 'nodes';
+		grp.name = 'nodes';
 		grp.applyMatrix4(this.#attrMatrix(nodesNode));
 
 		nodesNode.querySelectorAll(':scope > node').forEach(node => {
@@ -1057,11 +1065,11 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @returns {void}
 	 * @throws {OgreMaxError}		- if a subentity material is missing in the loaded material file
 	 */
-	#parseSubEntities(subNode){
+	#parseSubEntities(subNode) {
 		const fnameParts = this.#url.split('/').pop().split('.');
-		const baseName   = fnameParts.length > 2 ? fnameParts.slice(0, -1).join('.') : fnameParts[0];
-		const matURL     = `${this.path}${baseName}.material`;
-		const matLoader  = new DotMaterialLoader(this.manager);
+		const baseName = fnameParts.length > 2 ? fnameParts.slice(0, -1).join('.') : fnameParts[0];
+		const matURL = `${this.path}${baseName}.material`;
+		const matLoader = new DotMaterialLoader(this.manager);
 
 		matLoader.texturePath = this.texturePath || this.path;
 
@@ -1069,19 +1077,38 @@ class OgreMaxLoader extends THREE.Loader {
 		matLoader.load(
 			matURL,
 			mats => {
-				subNode.querySelectorAll('subentity').forEach(sub => {
-					const idx  = this.#attrI(sub, 'index');
+				/* create array large enough to hold every sub-entity by index */
+				const subList = subNode.querySelectorAll('subentity');
+				const maxIdx = Math.max(...Array.from(subList, s =>
+					this.#attrInt(s, 'index')));
+				const subMats = new Array(subList.length)
+					.fill(new THREE.MeshBasicMaterial({ color: 0x808080 }));
+
+				//subNode.querySelectorAll('subentity').forEach(sub => {
+				subList.forEach(sub => {
+					const idx = this.#attrInt(sub, 'index');
 					const name = sub.getAttribute('materialName');
 
-					if(!mats[idx] || mats[idx].name !== name){
-						this.#internalManager.itemError(matURL);
+					/* look-up by name to tolerate multi-pass materials */
+					const mat = mats.find(m => m.name === name);
+					if (mat) {
+						//if(!mats[idx] || mats[idx].name !== name){
+						mat.map.flipY = false; // Ogre textures are not flipped
+                        mat.map.needsUpdate = true; // ensure texture is updated
+						subMats[idx] = mat;
+					}
+					else {
+						console.warn(`[OgreMaxLoader] material "${name}" (index ${idx})` +
+							` not found in ${matURL}`);
+						// fallback: simple grey Standard material so geometry remains visible
+						subMats[idx] = new THREE.MeshStandardMaterial({ color: 0x808080 });
 					}
 				});
 
-				this.#objectRoot[baseName] = { materials: mats };
+				this.#objectRoot[baseName] = { materials: subMats };
 				this.#internalManager.itemEnd(matURL);
 			},
-			() => {},
+			() => { },
 			() => this.#internalManager.itemError(matURL)
 		);
 	}
@@ -1093,21 +1120,21 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Parse one <animation>.
 	 * @private
-	 * @param	{Element}                   aNode	- XML element `<animation>`
+	 * @param	{Element}                   XMLNode	- XML element `<animation>`
 	 * @param	{Record<string,THREE.Bone>}	bones	- map of bone names to THREE.Bone objects
 	 * @returns {THREE.AnimationClip}				- the parsed animation clip
 	 */
-	#parseAnimation(aNode, bones) {
-		const name = aNode.getAttribute('name') || 'default';
-		const length = this.#attrF(aNode, 'length', 0);
+	#parseAnimation(XMLNode, bones) {
+		const name = XMLNode.getAttribute('name') || 'default';
+		const length = this.#attrFloat(XMLNode, 'length', 0);
 
 		if (!length || !isFinite(length)) {
 			throw new OgreMaxError('E_FORMAT', `Animation "${name}" has invalid length (${length})`, { url: this.#url });
 		}
 
-		const tracksNode = this.#q(aNode, 'tracks');
+		const tracksNode = this.#querySelect(XMLNode, 'tracks');
 		if (!tracksNode) {
-			throw new OgreMaxError('E_XML', `Animation "${name}" missing <tracks>`, {url: this.#url});
+			throw new OgreMaxError('E_XML', `Animation "${name}" missing <tracks>`, { url: this.#url });
 		}
 
 		const tracks = this.#parseTracks(tracksNode, bones);
@@ -1121,15 +1148,16 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Parse <animations>.
 	 * @private
-	 * @param	{Element}					animNode	- XML element `<animations>`
+	 * @param	{Element}					XMLNode		- XML element `<animations>`
 	 * @param	{Record<string,THREE.Bone>}	bones		- map of bone names to THREE.Bone objects
 	 * @returns {THREE.AnimationClip[]}					- the parsed animation clips
 	 */
-	#parseAnimations(animNode, bones){
+	#parseAnimations(XMLNode, bones) {
 		const clips = [];
+		const nodes = this.#querySelectAll(XMLNode, ':scope > animation');
 
-		for(const a of animNode.querySelectorAll('animation')){
-			clips.push(this.#parseAnimation(a, bones));
+		for (const node of nodes) {
+			clips.push(this.#parseAnimation(node, bones));
 		}
 
 		return clips;
@@ -1138,15 +1166,15 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Single <bone>.
 	 * @private
-	 * @param	{Element}		boneNode	- XML element `<bone>`
-	 * @returns {THREE.Bone}				- the parsed bone object
+	 * @param	{Element}		XMLNode	- XML element `<bone>`
+	 * @returns {THREE.Bone}			- the parsed bone object
 	 */
-	#parseBone(boneNode){
-		const bone   = new THREE.Bone();
+	#parseBone(XMLNode) {
+		const bone = new THREE.Bone();
 
-		bone.name    = boneNode.getAttribute('name') || '';
-		bone.userData.index = this.#attrI(boneNode,'id');
-		bone.applyMatrix4(this.#attrMatrix(boneNode));
+		bone.name = XMLNode.getAttribute('name') || '';
+		bone.userData.index = this.#attrInt(XMLNode, 'id');
+		bone.applyMatrix4(this.#attrMatrix(XMLNode));
 
 		return bone;
 	}
@@ -1154,129 +1182,130 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Parse <bones> list into an index-addressable map.
 	 * @private
-	 * @param	{Element}					bonesNode	- XML element `<bones>`
-	 * @returns {Record<string,THREE.Bone>}				- map of bone names to THREE.Bone objects
+	 * @param	{Element}					XMLNode	- XML element `<bones>`
+	 * @returns {Record<string,THREE.Bone>}			- map of bone names to THREE.Bone objects
 	 */
-	#parseBones(bonesNode){
-		/** @type {Record<string,THREE.Bone>} */
-		const out = {};
+	#parseBones(XMLNode) {
+		const bones = {};
+		const nodes = this.#querySelectAll(XMLNode, ':scope > bone');
 
-		for(const bNode of bonesNode.querySelectorAll('bone')){
-			const bone = this.#parseBone(bNode);
+		for (const node of nodes) {
+			const bone = this.#parseBone(node);
 
-			out[bone.name] = bone;
+			bones[bone.name] = bone;
 		}
-		return out;
+		return bones;
 	}
 
 	/**
 	 * Build THREE.Bone hierarchy (<bonehierarchy>).
 	 * @private
-	 * @param	{Element}					hierNode	- XML element `<bonehierarchy>`
-	 * @param	{Record<string,THREE.Bone>}	bones		- map of bone names to THREE.Bone objects
-	 * @returns {THREE.Bone[]}							- array of THREE.Bone objects in hierarchy order
+	 * @param	{Element}					XMLNode	- XML element `<bonehierarchy>`
+	 * @param	{Record<string,THREE.Bone>}	bones	- map of bone names to THREE.Bone objects
+	 * @returns {THREE.Bone[]}						- array of THREE.Bone objects in hierarchy order
 	 */
-	#parseBoneHierarchy(hierNode, bones){
-		for(const bp of hierNode.querySelectorAll('boneparent')){
-			const parent = bones[bp.getAttribute('parent')];
-			const child  = bones[bp.getAttribute('bone')];
+	#parseBoneHierarchy(XMLNode, bones) {
+		const nodes = this.#querySelectAll(XMLNode, ':scope > boneparent');
 
-			parent && child && parent.add(child);
+		for (const boneparentNode of nodes) {
+			const parent = bones[boneparentNode.getAttribute('parent')];
+			const bone = bones[boneparentNode.getAttribute('bone')];
+
+			parent && bone && parent.add(bone);
 		}
 
 		/* reorder by original index (THREE.Skeleton expects array) */
-		const arr = Object.values(bones).sort((a,b)=>a.userData.index-b.userData.index);
-		return arr;
+		const newBones = Object.values(bones).sort((a, b) => a.userData.index - b.userData.index);
+		return newBones;
 	}
 
 	/**
 	 * Single <keyframe>.
 	 * @private
-	 * @param	{Element}								kfNode	- XML element `<keyframe>`
+	 * @param	{Element}								XMLNode	- XML element `<keyframe>`
 	 * @returns {{time:number, matrix:THREE.Matrix4}}			- the parsed keyframe data
 	 */
-	#parseKeyframe(kfNode){
-		return {
-			time   : this.#attrF(kfNode,'time',0),
-			matrix : this.#attrMatrix(kfNode)
-		};
+	#parseKeyframe(XMLNode) {
+		return { time: this.#attrFloat(XMLNode, 'time', 0), matrix: this.#attrMatrix(XMLNode) };
 	}
 
 	/**
 	 * Gather arrays for one <keyframes> block.
 	 * @private
-	 * @param  {Element}																												kfsNode	- XML element `<keyframes>`
+	 * @param  {Element}																												XMLNode	- XML element `<keyframes>`
 	 * @param  {THREE.Bone}																												bone	- the bone to which the keyframes apply
 	 * @returns {{pos:{times:number[],values:number[]}, rot:{times:number[],values:number[]}, scl:{times:number[],values:number[]}}}			- the parsed keyframes data
 	 */
-	#parseKeyframes(kfsNode, bone){
-		const pos = { times:[], values:[] };
-		const rot = { times:[], values:[] };
-		const scl = { times:[], values:[] };
+	#parseKeyframes(XMLNode, bone) {
+		const position = { times: [], values: [] }, rotation = { times: [], values: [] }, scale = { times: [], values: [] };
 
-		for(const kf of kfsNode.children){
-			if(kf.nodeName !== 'keyframe') continue;
-			const { time, matrix } = this.#parseKeyframe(kf);
-			const p = new THREE.Vector3();
-			const q = new THREE.Quaternion();
-			const s = new THREE.Vector3();
+		for (const keyframeNode of XMLNode.children) {
+			if (keyframeNode.nodeName !== 'keyframe') {
+				console.warn("THREE.OgreMaxLoader.parseKeyframes(): Unknown node name <" + keyframeNode.nodeName + ">");
+				continue;
+			}
 
-			matrix.decompose(p, q, s);
+			const { time, matrix } = this.#parseKeyframe(keyframeNode);
+			const mPosition = new THREE.Vector3();
+			const mRotation = new THREE.Quaternion();
+			const mScale = new THREE.Vector3();
 
-			// bone-space → object-space
-			q.multiplyQuaternions(bone.quaternion, q).normalize();
+			matrix.decompose(mPosition, mRotation, mScale);
 
-			pos.times.push(time);  rot.times.push(time);  scl.times.push(time);
-			pos.values.push(...p.toArray());
-			rot.values.push(...q.toArray());
-			scl.values.push(...s.toArray());
+			position.times.push(time);
+			rotation.times.push(time);
+			scale.times.push(time);
+
+			//Add translation to bone position to get final position
+			mPosition.add(bone.position);
+
+			//Multiply quaternion to bone quaternion to get the final rotation
+			mRotation.multiplyQuaternions(bone.quaternion, mRotation).normalize();
+
+			position.values.push(...mPosition.toArray());
+			rotation.values.push(...mRotation.toArray());
+			scale.values.push(...mScale.toArray());
 		}
 
-		return { pos, rot, scl };
+		return { position, rotation, scale };
 	}
 
 	/**
 	 * Parse one <track> → multiple KeyframeTracks (pos / rot / scale).
 	 * @private
-	 * @param	{Element}					trNode	- XML element `<track>`
+	 * @param	{Element}					XMLNode	- XML element `<track>`
 	 * @param	{Record<string,THREE.Bone>} bones	- map of bone names to THREE.Bone objects
 	 * @returns {THREE.KeyframeTrack[]}				- the parsed keyframe tracks for this bone
 	 */
-	#parseTrack(trNode, bones){
-		const boneName	= trNode.getAttribute('bone');
-		const kfNode	= this.#q(trNode, 'keyframes');
-		const bone		= bones[boneName];
-		const tracks	= [];
+	#parseTrack(XMLNode, bones) {
+		const tracks = [];
+		const boneName = XMLNode.getAttribute('bone');
+		const keyframesNode = this.#querySelect(XMLNode, 'keyframes');
+		const bone = bones[boneName];
 
 		if (!bone) {
 			throw new OgreMaxError('E_RANGE', `Track references unknown bone "${boneName}"`, { url: this.#url });
 		}
 
-		if (!kfNode) {
+		if (!keyframesNode) {
 			throw new OgreMaxError('E_XML', `Track for bone "${boneName}" has no <keyframes>`, { url: this.#url });
 		}
 
-		const data = this.#parseKeyframes(kfNode, bone);
-		if (!data.pos.times.length && !data.rot.times.length && !data.scl.times.length) {
+		const { position, rotation, scale } = this.#parseKeyframes(keyframesNode, bone);
+		if (!position.times.length && !rotation.times.length && !scale.times.length) {
 			throw new OgreMaxError('E_FORMAT', `Track for bone "${boneName}" contains zero keyframes`, { url: this.#url });
 		}
 
-		if(data.pos.times.length){
-			tracks.push(new THREE.VectorKeyframeTrack(
-				`.bones[${boneName}].position`, data.pos.times, data.pos.values
-			));
+		if (position.times.length) {
+			tracks.push(new THREE.VectorKeyframeTrack(`.bones[${boneName}].position`, position.times, position.values));
 		}
 
-		if(data.rot.times.length){
-			tracks.push(new THREE.QuaternionKeyframeTrack(
-				`.bones[${boneName}].quaternion`, data.rot.times, data.rot.values
-			));
+		if (rotation.times.length) {
+			tracks.push(new THREE.QuaternionKeyframeTrack(`.bones[${boneName}].quaternion`, rotation.times, rotation.values));
 		}
 
-		if(data.scl.times.length){
-			tracks.push(new THREE.VectorKeyframeTrack(
-				`.bones[${boneName}].scale`, data.scl.times, data.scl.values
-			));
+		if (scale.times.length) {
+			tracks.push(new THREE.VectorKeyframeTrack(`.bones[${boneName}].scale`, scale.times, scale.values));
 		}
 
 		return tracks;
@@ -1285,15 +1314,16 @@ class OgreMaxLoader extends THREE.Loader {
 	/**
 	 * Parse <tracks>.
 	 * @private
-	 * @param	{Element}					tracksNode	- XML element `<tracks>`
-	 * @param	{Record<string,THREE.Bone>}	bones		- map of bone names to THREE.Bone objects
-	 * @returns {THREE.KeyframeTrack[]}					- the parsed keyframe tracks for all bones
+	 * @param	{Element}					XMLNode	- XML element `<tracks>`
+	 * @param	{Record<string,THREE.Bone>}	bones	- map of bone names to THREE.Bone objects
+	 * @returns {THREE.KeyframeTrack[]}				- the parsed keyframe tracks for all bones
 	 */
-	#parseTracks(tracksNode, bones){
+	#parseTracks(XMLNode, bones) {
 		const tracks = [];
+		const nodes = this.#querySelectAll(XMLNode, ':scope > track');
 
-		for(const t of tracksNode?.querySelectorAll('track') || []){
-			tracks.push(...this.#parseTrack(t, bones));
+		for (const trackNode of nodes) {
+			tracks.push(...this.#parseTrack(trackNode, bones));
 		}
 
 		return tracks;
@@ -1301,76 +1331,72 @@ class OgreMaxLoader extends THREE.Loader {
 
 
 	/* ====================================================================== */
-	/* Attributes helpers													  */
+	/* Attributes parsers													  */
 	/* ====================================================================== */
 	/**
 	 * Read a boolean attribute (`"true"` / `"false"`) with default fallback.
 	 * @private
-	 * @param   {Element|null} node         – element holding the attribute
+	 * @param   {Element|null} XMLNode         – element holding the attribute
 	 * @param   {string}       attr         – attribute name
-	 * @param   {boolean}      [def=false]  – default if missing
+	 * @param   {boolean}      [defaultValue=false]  – default if missing
 	 * @returns {boolean}					- the attribute value as boolean
 	 */
-	#attrB(node, attr, def = false){
-		return (node?.getAttribute(attr) ?? `${def}`).toLowerCase() === 'true';
+	#attrBool(XMLNode, attr, defaultValue = false) {
+		return (XMLNode?.getAttribute(attr) ?? `${defaultValue}`).toLowerCase() === 'true';
 	}
 
 	/**
 	 * Build a `THREE.Color` from attributes `r`, `g`, `b` (0–1 floats).
 	 * @private
-	 * @param	{Element}		n	- XML element with `r`, `g`, `b` attributes
-	 * @returns {THREE.Color}		- the resulting color
+	 * @param	{Element}		XMLNode	- XML element with `r`, `g`, `b` attributes
+	 * @returns {THREE.Color}			- the resulting color
 	 */
-	#attrColor(n){
-		return new THREE.Color(this.#attrF(n,'r'),this.#attrF(n,'g'),this.#attrF(n,'b'));
+	#attrColorRGB(XMLNode) {
+		return new THREE.Color(this.#attrFloat(XMLNode, 'r'), this.#attrFloat(XMLNode, 'g'), this.#attrFloat(XMLNode, 'b'));
 	}
 
 	/**
 	 * Read a float attribute with default.
 	 * @private
-	 * @param	{Element|null}	node	- element holding the attribute
+	 * @param	{Element|null}	XMLNode	- element holding the attribute
 	 * @param	{string}		attr	- attribute name
-	 * @param	{number}		[def=0]	- default value if missing
+	 * @param	{number}		[defaultValue=0]	- default value if missing
 	 * @returns	{number}				- the attribute value as float
 	 */
-	#attrF(node, attr, def = 0){
-		return parseFloat(node?.getAttribute(attr) ?? def);
+	#attrFloat(XMLNode, attr, defaultValue = 0) {
+		return parseFloat(XMLNode?.getAttribute(attr) ?? defaultValue);
 	}
 
 	/**
 	 * Read an int attribute with default.
 	 * @private
-	 * @param	{Element|null}	node	- element holding the attribute
+	 * @param	{Element|null}	XMLNode	- element holding the attribute
 	 * @param	{string}		attr	- attribute name
-	 * @param	{number}		[def=0]	- default value if missing
+	 * @param	{number}		[defaultValue=0]	- default value if missing
 	 * @returns {number}				- the attribute value as integer
 	 */
-	#attrI(node, attr, def = 0){
-		return parseInt  (node?.getAttribute(attr) ?? def, 10);
+	#attrInt(XMLNode, attr, defaultValue = 0) {
+		return parseInt(XMLNode?.getAttribute(attr) ?? defaultValue, 10);
 	}
 
 	/**
 	 * Compose a `THREE.Matrix4` from optional child tags
 	 * `<position|translate>`, `<rotation|rotate>` and `<scale>`.
 	 * @private
-	 * @param	{Element|null}	n	- XML element `<node>` or similar
-	 * @returns {THREE.Matrix4}		- the resulting matrix
+	 * @param	{Element|null}	XMLNode	- XML element `<node>` or similar
+	 * @returns {THREE.Matrix4}			- the resulting matrix
 	 */
-	#attrMatrix(n){
-		const pos = this.#attrVector(n?.querySelector('position,translate'));
-		const rot = this.#attrQuat  (n?.querySelector('rotation,rotate'));
-		let   scl = new THREE.Vector3(1, 1, 1);
+	#attrMatrix(XMLNode) {
+		const position = this.#attrVector3(XMLNode?.querySelector('position,translate'));
+		const rotation = this.#attrQuaternion(XMLNode?.querySelector('rotation,rotate'));
+		const scaleNode = XMLNode?.querySelector('scale');
+		let scale = new THREE.Vector3(1, 1, 1);
 
-		const scaleNode = n?.querySelector('scale');
-		if(scaleNode){
-			scl = scaleNode.hasAttribute('factor')
-				? new THREE.Vector3(
-						this.#attrF(scaleNode, 'factor', 1),
-						this.#attrF(scaleNode, 'factor', 1),
-						this.#attrF(scaleNode, 'factor', 1))
-				: this.#attrVector(scaleNode);
+		if (scaleNode) {
+			scale = scaleNode.hasAttribute('factor') ? new THREE.Vector3(this.#attrFloat(scaleNode, 'factor', 1), this.#attrFloat(scaleNode, 'factor', 1), this.#attrFloat(scaleNode, 'factor', 1)) : this.#attrVector3(scaleNode);
 		}
-		return new THREE.Matrix4().compose(pos, rot, scl);
+
+		return new THREE.Matrix4().compose(position, rotation, scale);
 	}
 
 	/**
@@ -1395,99 +1421,132 @@ class OgreMaxLoader extends THREE.Loader {
 	 *
 	 * Missing or unsupported nodes return **identity**.
 	 * @private
-	 * @param	{Element|null}		n	- XML element `<rotation>` or similar
-	 * @returns {THREE.Quaternion}		- the resulting quaternion
+	 * @param	{Element|null}		XMLNode	- XML element `<rotation>` or similar
+	 * @returns {THREE.Quaternion}			- the resulting quaternion
 	 */
-	#attrQuat(n) {
-		const q = new THREE.Quaternion();
-		if (!n) return q;	// default → identity
-
-		
-		// explicit quaternion (qx qy qz qw)
-		if (n.hasAttribute('qx')) {
-			const qx = this.#attrF(n, 'qx', NaN);
-			const qy = this.#attrF(n, 'qy', NaN);
-			const qz = this.#attrF(n, 'qz', NaN);
-			const qw = this.#attrF(n, 'qw', NaN);
-
-			if ([qx, qy, qz, qw].some(Number.isNaN)) {
-				throw new OgreMaxError('E_FORMAT', 'Invalid quaternion component', {node: n.outerHTML});
-			}
-
-			q.set(qx, qy, qz, qw).normalize();
-			return q;
+	#attrQuaternion(XMLNode) {
+		const quat = new THREE.Quaternion();
+		if (!XMLNode) {
+			return quat;	// default → identity
 		}
 
-		
+		// explicit quaternion (qx qy qz qw)
+		if (XMLNode.hasAttribute('qx')) {
+			const qx = this.#attrFloat(XMLNode, 'qx', NaN);
+			const qy = this.#attrFloat(XMLNode, 'qy', NaN);
+			const qz = this.#attrFloat(XMLNode, 'qz', NaN);
+			const qw = this.#attrFloat(XMLNode, 'qw', NaN);
+
+			if ([qx, qy, qz, qw].some(Number.isNaN)) {
+				throw new OgreMaxError('E_FORMAT', 'Invalid quaternion component', { node: XMLNode.outerHTML });
+			}
+
+			quat.set(qx, qy, qz, qw).normalize();
+			return quat;
+		}
+
+
 		// axis-angle  (attributes or sub-elements)
-		
-		if (n.hasAttribute('angle') || this.#q(n, 'angle')) {
 
+		if (XMLNode.hasAttribute('angle') || this.#querySelect(XMLNode, 'angle')) {
 			// angle value (radians)
-			const angleAttr = n.getAttribute('angle');
-			const angleElem = this.#q(n, 'angle');
-			const angle = angleAttr !== null
-				? parseFloat(angleAttr)
-				: this.#attrF(angleElem, 'value', 0);
-
-			// axis vector
+			const angleAttr = XMLNode.getAttribute('angle');
+			const angleElem = this.#querySelect(XMLNode, 'angle');
+			const angle = angleAttr !== null ? parseFloat(angleAttr) : this.#attrFloat(angleElem, 'value', 0);
 			let axis;
-			if (n.hasAttribute('axisX')) {
+
+			if (XMLNode.hasAttribute('axisX')) {
 				axis = new THREE.Vector3(
-					this.#attrF(n, 'axisX', 0),
-					this.#attrF(n, 'axisY', 0),
-					this.#attrF(n, 'axisZ', 1)
+					this.#attrFloat(XMLNode, 'axisX', 0),
+					this.#attrFloat(XMLNode, 'axisY', 0),
+					this.#attrFloat(XMLNode, 'axisZ', 1)
 				);
-			} else {
-				const ax = this.#q(n, 'axis');
+			}
+			else {
+				const ax = this.#querySelect(XMLNode, 'axis');
+
 				axis = new THREE.Vector3(
-					this.#attrF(ax, 'x', 0),
-					this.#attrF(ax, 'y', 0),
-					this.#attrF(ax, 'z', 1)
+					this.#attrFloat(ax, 'x', 0),
+					this.#attrFloat(ax, 'y', 0),
+					this.#attrFloat(ax, 'z', 1)
 				);
 			}
 
 
 			if (!isFinite(angle) || axis.lengthSq() === 0) {
-				throw new OgreMaxError('E_FORMAT', 'Invalid axis-angle rotation', {node: n.outerHTML});
+				throw new OgreMaxError('E_FORMAT', 'Invalid axis-angle rotation', { node: XMLNode.outerHTML });
 			}
 
-			return q.setFromAxisAngle(axis.normalize(), angle);
+			return quat.setFromAxisAngle(axis.normalize(), angle);
 		}
 
 		// Euler fallback  (angleX / angleY / angleZ)  
 		//    – OgreMax stores these in **degrees**
-		if (n.hasAttribute('angleX') ||
-				n.hasAttribute('angleY') ||
-				n.hasAttribute('angleZ')) {
-
+		if (XMLNode.hasAttribute('angleX') || XMLNode.hasAttribute('angleY') || XMLNode.hasAttribute('angleZ')) {
 			const degToRad = Math.PI / 180;
-			const euler = new THREE.Euler(
-				this.#attrF(n, 'angleX', 0) * degToRad,
-				this.#attrF(n, 'angleY', 0) * degToRad,
-				this.#attrF(n, 'angleZ', 0) * degToRad,
-				'XYZ'                                    // Ogre default order
-			);
-			return q.setFromEuler(euler);
+			const euler = new THREE.Euler(this.#attrFloat(XMLNode, 'angleX', 0) * degToRad, this.#attrFloat(XMLNode, 'angleY', 0) * degToRad, this.#attrFloat(XMLNode, 'angleZ', 0) * degToRad, 'XYZ');
+
+			return quat.setFromEuler(euler);
 		}
 
 		// Unsupported → identity
-		console.warn('[OgreMaxLoader] Unknown rotation format:', n.outerHTML);
-		return q;
+		console.warn('[OgreMaxLoader] Unknown rotation format:', XMLNode.outerHTML);
+		return quat;
+	}
+
+	/**
+	 * Extract a single float from an attribute `u`.
+	 * Defaults to `0` if the node is missing or the attribute is not present.
+	 * This is used for texture coordinates in OgreXML files.
+	 * @private
+	 * @param	{Element|null}	XMLNode	- XML element with `u` attribute
+	 * @returns {number}				- the resulting float (default: 0)
+	 */
+	#attrU(XMLNode) {
+		return this.#attrFloat(XMLNode, 'u');
+	}
+
+	/**
+	 * Extract a 2-component vector from attributes `u / v`.
+	 * Defaults to (0,0) if the node is missing or attributes are not present.
+	 * This is used for texture coordinates in OgreXML files.
+	 * @param	{Element|null}	XMLNode	- XML element with `u`, `v` attributes
+	 * @returns {THREE.Vector2}			- the resulting vector (default: (0,0))
+	 */
+	#attrUV(XMLNode) {
+		return new THREE.Vector2(
+			this.#attrFloat(XMLNode, 'u'),
+			this.#attrFloat(XMLNode, 'v')
+		);
+	}
+
+	/**
+	 * Extract a 3-component vector from attributes `u / v / w`.
+	 * Defaults to (0,0,0) if the node is missing or attributes are not present.
+	 * This is used for texture coordinates in OgreXML files.
+	 * @private
+	 * @param	{Element|null}	XMLNode	- XML element with `u`, `v`, `w` attributes
+	 * @returns {THREE.Vector3}			- the resulting vector (default: (0,0,0))
+	 */
+	#attrUVW(XMLNode) {
+		return new THREE.Vector3(
+			this.#attrFloat(XMLNode, 'u', 0),
+			this.#attrFloat(XMLNode, 'v', 0),
+			this.#attrFloat(XMLNode, 'w', 0)
+		);
 	}
 
 	/**
 	 * Simple 3-component vector from attributes `x / y / z`.
 	 * @private
-	 * @param	{Element|null}	n	- XML element with `x`, `y`, `z` attributes
-	 * @returns	{THREE.Vector3}		- the resulting vector
+	 * @param	{Element|null}	XMLNode	- XML element with `x`, `y`, `z` attributes
+	 * @returns	{THREE.Vector3}			- the resulting vector
 	 */
-	#attrVector(n){
-		if(!n) return new THREE.Vector3();	// (0,0,0)
+	#attrVector3(XMLNode) {
 		return new THREE.Vector3(
-			this.#attrF(n, 'x', 0),
-			this.#attrF(n, 'y', 0),
-			this.#attrF(n, 'z', 0)
+			this.#attrFloat(XMLNode, 'x', 0),
+			this.#attrFloat(XMLNode, 'y', 0),
+			this.#attrFloat(XMLNode, 'z', 0)
 		);
 	}
 
@@ -1501,7 +1560,7 @@ class OgreMaxLoader extends THREE.Loader {
 	 * @param	{string}	path	- the full path to the file
 	 * @returns {string}			- the base filename without extension
 	 */
-	#filenameBase(path){
+	#filenameBase(path) {
 		const parts = path.split('/').pop().split('.');
 		return parts.length > 2 ? parts.slice(0, -1).join('.') : parts[0];
 	}
@@ -1510,12 +1569,38 @@ class OgreMaxLoader extends THREE.Loader {
 	 * Shorthand: same as node?.querySelector(sel) but returns `null`
 	 * when `node` itself is `null`.
 	 * @private
-	 * @param	{Element|null}	node	- the parent node to query
+	 * @param	{Element|null}	XMLNode	- the parent node to query
 	 * @param	{string}		sel		- the CSS selector to use
 	 * @returns {Element|null}			- the first matching element or `null` if not found
 	 */
-	#q(node, sel){
-		return node ? node.querySelector(sel) : null;
+	#querySelect(XMLNode, selector) {
+		return XMLNode ? XMLNode.querySelector(selector) : null;
+	}
+
+	/**
+	 * Shorthand: same as node?.querySelectorAll(sel) but returns an empty array
+	 * when `node` itself is `null`.
+	 * @param	{Element|null}	XMLNode		- the parent node to query
+	 * @param	{string}		selector	- the CSS selector to use
+	 * @returns {Element[]}					- the list of matching elements or an empty array if not found
+	 */
+	#querySelectAll(XMLNode, selector) {
+		return XMLNode ? XMLNode.querySelectorAll(selector) : [];
+	}
+
+	#logStart(url) {
+		if (this.#logOpen) {
+			this.#logEnd(); // close previous group if still open
+		}
+		console.groupCollapsed(`[OgreMaxLoader] ${url}`);
+		this.#logOpen = true;
+	}
+
+	#logEnd() {
+		if (this.#logOpen) {
+			console.groupEnd();
+			this.#logOpen = false;
+		}
 	}
 }
 
@@ -1524,7 +1609,7 @@ class OgreMaxLoader extends THREE.Loader {
  * Loader for legacy Ogre *.material* text files.
  * Produces an **array of THREE.MeshPhongMaterial** objects, one per pass.
  */
-class DotMaterialLoader extends THREE.Loader {
+export class DotMaterialLoader extends THREE.Loader {
 	/* ====================================================================== */
 	/* Private internal state (not exposed to the end-user)                   */
 	/* ====================================================================== */
@@ -1542,7 +1627,6 @@ class DotMaterialLoader extends THREE.Loader {
 	constructor(manager = THREE.DefaultLoadingManager) {
 		super(manager);
 		this.textureLoader = new THREE.TextureLoader(this.manager);
-		this.textureLoader.flipY = false;          // Ogre + Three coordinate fix
 	}
 
 	/** @returns {string} - the texture path for loading textures (default: same as `path`) */
@@ -1550,7 +1634,7 @@ class DotMaterialLoader extends THREE.Loader {
 		return this.#texturePath;
 	}
 
-    /** @param {string} value - the texture path for loading textures (default: same as `path`) */
+	/** @param {string} value - the texture path for loading textures (default: same as `path`) */
 	set texturePath(value) {
 		if (typeof value !== 'string') {
 			throw new DotMaterialError('E_RUNTIME', 'texturePath must be string', { value });
@@ -1617,7 +1701,7 @@ class DotMaterialLoader extends THREE.Loader {
 	parse(text, texturePath = '') {
 		const mats = [];                          // final array
 		const lines = text.split(/\r?\n/);        // strip CRLF
-        const textureLoader = this.textureLoader; // local ref for closure
+		const textureLoader = this.textureLoader; // local ref for closure
 
 		// helper cursors
 		let i = 0;
@@ -1711,9 +1795,12 @@ class DotMaterialLoader extends THREE.Loader {
 			const m = new THREE.MeshPhongMaterial({
 				name: matName,
 				transparent: true,
-				skinning: true,
-				morphTargets: true
 			});
+			m.skinning = true;
+			m.morphTargets = true;
+
+			let diffuseSet = false;
+			let emissiveSet = false;
 
 			eat('pass'); eat('{');
 
@@ -1765,9 +1852,8 @@ class DotMaterialLoader extends THREE.Loader {
 			 * @returns {void}
 			 */
 			function handleTextureUnit() {
-				eat('texture_unit');
+				//eat('texture_unit');
 				eat('{');
-				let diffuseSet = false;
 
 				while (peek() !== '}') {
 
@@ -1776,10 +1862,15 @@ class DotMaterialLoader extends THREE.Loader {
 						case 'texture':
 							if (!diffuseSet) {
 								m.map = loadTex(t[1]);
+                                m.map.flipY = false; // OgreMax does not flip Y by default
 								diffuseSet = true;
 							}
-							else {
+							else if (!emissiveSet) {
 								m.emissiveMap = loadTex(t[1]);
+								m.emissiveIntensity = 1; // OgreMax uses emissive intensity of 1 by default
+								m.emissive.set(0xffffff); // set emissive color to white.
+                                m.emissiveMap.flipY = false; // OgreMax does not flip Y by default
+								emissiveSet = true;
 							}
 							break;
 						case 'colour_op_ex':
@@ -1880,7 +1971,3 @@ class DotMaterialError extends Error {
 		this.meta = meta;
 	}
 }
-
-
-export { OgreMaxLoader };
-export { DotMaterialLoader };

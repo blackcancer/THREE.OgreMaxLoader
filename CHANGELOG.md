@@ -7,7 +7,33 @@ This project follows **[Semantic Versioning](https://semver.org)** and the
 
 ---
 
-## \[2.0.0] – 2025‑06‑11
+## \[1.1] – 2025-06-13
+
+### Added
+- Support for both `<vertexboneassignment>` **and** `<boneassignment>` tags – skinning now works with any Ogre exporter.
+- Automatic switch to 32-bit indices (`use32bitindexes`) when a mesh exceeds 65,535 vertices.
+- New primitive types `line_list` / `line_strip`; corresponding objects are imported as `THREE.Line`.
+- Geometry groups created via `geom.addGroup`, and the `materialSlot` is stored in `userData` for multi-material models.
+- Full emissive-map handling: second `texture_unit` parsed, `emissiveMap` assigned, default white emissive colour and `emissiveIntensity`, `flipY` disabled.
+- Cleaner console output: grouped logs (`#logStart` / `#logEnd`) and a summary table of loaded materials.
+
+### Changed
+- Shared-geometry handling fixed: `sharedGeom` is no longer shadowed, preventing zeroed vertex positions.
+- Removed implicit vertical flip: `texture.flipY` is now set to **false** for all Ogre imports.
+- Default fallback material is now `MeshStandardMaterial` (skinning, morph targets and transparency enabled).
+- Sub-meshes set `frustumCulled = false` to prevent unexpected disappearance at screen edges.
+
+### Fixed
+- Invisible meshes: `skinIndex` and `skinWeight` buffers are correctly populated (vertices no longer collapse to the origin).
+- Vertical texture offset resolved through unified `flipY` management.
+- Reliable material reassignment in multi-object scenes after loading.
+
+### Removed
+- Repository cleanup: obsolete `install.sh` script and `test/` folder deleted.
+
+---
+
+## \[1.0] – 2025‑06‑11
 
 ### Added
 
@@ -32,7 +58,7 @@ This project follows **[Semantic Versioning](https://semver.org)** and the
 
 ---
 
-## \[1.0.0] – 2018‑04‑15
+## \[0.2] – 2018‑04‑15
 
 > *Maintenance release preparing the ground for BufferGeometry.*
 
@@ -63,11 +89,5 @@ This project follows **[Semantic Versioning](https://semver.org)** and the
 
 ---
 
-## Unreleased
-
-* None yet.
-
----
-
-© 2014‑2025 – Original author Blackcancer · Modern rewrite [you@example.com](mailto:you@example.com)
+© 2014‑2025 – Original author Blackcancer · Modern rewrite [init-sys-rev@hotmail.com](mailto:init-sys-rev@hotmail.com)
 Licensed under **Creative Commons BY 3.0**.
