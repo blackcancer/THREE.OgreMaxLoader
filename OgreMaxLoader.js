@@ -53,7 +53,7 @@
  *
  * @author    Blackcancer <init-sys-rev@hotmail.com>
  * @copyright 2025
- * @version   1.1 – 2025-06-11  (Fix the mesh geometry and textures)
+ * @version   1.1.1 – 2026-05-20  (Fix scoped transforms and StarMade texture units)
  * @license   MIT
  * @module    OgreMaxLoader
  */
@@ -1387,9 +1387,9 @@ export class OgreMaxLoader extends THREE.Loader {
 	 * @returns {THREE.Matrix4}			- the resulting matrix
 	 */
 	#attrMatrix(XMLNode) {
-		const position = this.#attrVector3(XMLNode?.querySelector('position,translate'));
-		const rotation = this.#attrQuaternion(XMLNode?.querySelector('rotation,rotate'));
-		const scaleNode = XMLNode?.querySelector('scale');
+		const position = this.#attrVector3(this.#querySelect(XMLNode, ':scope > position, :scope > translate'));
+		const rotation = this.#attrQuaternion(this.#querySelect(XMLNode, ':scope > rotation, :scope > rotate'));
+		const scaleNode = this.#querySelect(XMLNode, ':scope > scale');
 		let scale = new THREE.Vector3(1, 1, 1);
 
 		if (scaleNode) {
@@ -1783,8 +1783,9 @@ export class DotMaterialLoader extends THREE.Loader {
 		/**
 		 * Parse a `<pass>` block, creating a MeshPhongMaterial with the specified properties.
 		 * The pass block can contain various commands like `diffuse`, `specular`, `texture_unit`, etc.
-		 * It supports diffuse and emissive textures, but ignores others like normal maps.
-		 * It sets the first texture as the diffuse map and the second as the emissive map.
+		 * It supports StarMade/Open's diffuse, normal, and emissive texture classification.
+		 * Emissive texture units are identified by `colour_op_ex add src_texture src_current`;
+		 * `_nrm` textures are normal maps, matching the Java Ogre material parser.
 		 * @private
 		 * @param	{string}					matName	- the name of the material to create
 		 * @returns {THREE.MeshPhongMaterial}			- the created material with the specified properties
@@ -1798,9 +1799,6 @@ export class DotMaterialLoader extends THREE.Loader {
 			});
 			m.skinning = true;
 			m.morphTargets = true;
-
-			let diffuseSet = false;
-			let emissiveSet = false;
 
 			eat('pass'); eat('{');
 
@@ -1844,9 +1842,8 @@ export class DotMaterialLoader extends THREE.Loader {
 			/* ───── sub-helpers ───────── */
 			/**
 			 * Handle a `<texture_unit>` block, loading textures and setting them on the material.
-			 * OgreMax supports diffuse and emissive textures, but ignores others like normal maps.
-			 * OgreMax does not support `texture_unit` parameters like `colour_op_ex` or `colour_op_multipass_fallback`.
-			 * This function sets the first texture as the diffuse map and the second as the emissive map.
+			 * StarMade-Open classifies texture units from the material script: `_nrm` means normal map,
+			 * and `colour_op_ex add src_texture src_current` marks an emissive texture.
 			 * @private
 			 * @throws	{DotMaterialError}	- if the texture unit block is malformed or unsupported
 			 * @returns {void}
@@ -1854,27 +1851,18 @@ export class DotMaterialLoader extends THREE.Loader {
 			function handleTextureUnit() {
 				//eat('texture_unit');
 				eat('{');
+				let textureName = null;
+				let emissive = false;
 
 				while (peek() !== '}') {
 
 					const t = next().split(/\s+/);
 					switch (t[0]) {
 						case 'texture':
-							if (!diffuseSet) {
-								m.map = loadTex(t[1]);
-                                m.map.flipY = false; // OgreMax does not flip Y by default
-								diffuseSet = true;
-							}
-							else if (!emissiveSet) {
-								m.emissiveMap = loadTex(t[1]);
-								m.emissiveIntensity = 1; // OgreMax uses emissive intensity of 1 by default
-								m.emissive.set(0xffffff); // set emissive color to white.
-                                m.emissiveMap.flipY = false; // OgreMax does not flip Y by default
-								emissiveSet = true;
-							}
+							textureName = t[1];
 							break;
 						case 'colour_op_ex':
-							// ignore (Three can't replicate easily)
+							emissive = t.slice(1).join(' ') === 'add src_texture src_current';
 							break;
 						case 'colour_op_multipass_fallback':
 							break;
@@ -1883,6 +1871,29 @@ export class DotMaterialLoader extends THREE.Loader {
 					}
 				}
 				eat('}');
+
+				if (!textureName) {
+					return;
+				}
+
+				const texture = loadTex(textureName);
+
+				if (!texture) {
+					return;
+				}
+
+				texture.flipY = false; // OgreMax does not flip Y by default.
+				if (emissive) {
+					m.emissiveMap = texture;
+					m.emissiveIntensity = 1;
+					m.emissive.set(0xffffff);
+				}
+				else if (textureName.toLowerCase().includes('_nrm')) {
+					m.normalMap = texture;
+				}
+				else {
+					m.map = texture;
+				}
 			}
 
 			/**

@@ -7,6 +7,14 @@ This project follows **[Semantic Versioning](https://semver.org)** and the
 
 ---
 
+## \[1.1.1] – 2026-05-20
+
+### Fixed
+- Scoped dotScene transform parsing to direct child transform nodes only. Container `<nodes>` elements no longer inherit descendant `<node>` transforms, fixing doubled rotations on nested scene imports such as StarMade Light Rod LODs.
+- Aligned material texture-unit classification with the StarMade/Open Ogre pipeline: `_nrm` texture units are treated as normal maps, and `colour_op_ex add src_texture src_current` marks emissive maps instead of assigning emissive output by texture order.
+
+---
+
 ## \[1.1] – 2025-06-13
 
 ### Added
