@@ -1,0 +1,27 @@
+name: Prepare qualification runtimes
+on:
+  push:
+    branches: [fix/ogremax-conformance-and-coverage]
+    paths: [.github/workflows/runtime-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned reference runtimes
+        run: |
+          mkdir qualification-runtime
+          cd qualification-runtime
+          npm init -y
+          npm install --ignore-scripts --save-exact three-r170@npm:three@0.170.0 three-r180@npm:three@0.180.0 three-r186@npm:three@0.186.0
+          tar -czf ../qualification-runtime.tgz node_modules package.json package-lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: three-qualification-runtimes
+          path: qualification-runtime.tgz
+          retention-days: 3
