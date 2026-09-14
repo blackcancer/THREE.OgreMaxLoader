@@ -1,0 +1,25 @@
+name: Prepare OGRE reference sources
+on:
+  push:
+    branches: [fix/ogremax-conformance-and-coverage]
+    paths: [.github/workflows/qualification-references.yml]
+permissions:
+  contents: read
+jobs:
+  references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch the pinned upstream reference
+        run: |
+          git init reference
+          git -C reference remote add origin https://github.com/OGRECave/ogre.git
+          git -C reference fetch --depth=1 origin 5cccbeec824798629931cfd9184bde729610e30d
+          git -C reference checkout --detach FETCH_HEAD
+          git -C reference archive --format=tar HEAD OgreMain/src OgreMain/include Media/RTShaderLib PlugIns/DotScene Tools/XMLConverter LICENSE > reference.tar
+          gzip reference.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ogre-pinned-reference
+          path: reference.tar.gz
+          retention-days: 3
